@@ -1,25 +1,28 @@
-type ZoomFunc = (
+export type ZoomFunc = (
   low: number,
   high: number,
   mid: number,
-  mid_zooms: number,
-  need_leading_md: number,
+  mid_zooms?: number,
+  need_leading_md?: number,
 ) => number[];
 
 export class WebAric {
-  private _zoom_low: ZoomFunc;
+  private zoom_low: ZoomFunc;
   constructor(instance: WebAssembly.Instance) {
-    this._zoom_low = instance.exports._zoom_low as ZoomFunc;
+    console.log('Got instance: ' + instance);
+    console.log('Got exports: ' + instance.exports);
+    console.log('Got zoom_low: ' + instance.exports.zoom_low);
+    this.zoom_low = instance.exports.zoom_low as ZoomFunc;
   }
 
-  zoomLow(
+  async zoomLow(
     low: number,
     mid: number,
     high: number,
     mid_zooms = 0,
     need_leading_mid = true,
   ) {
-    return this._zoom_low(
+    return await this.zoom_low(
       low >> 0,
       mid >> 0,
       high >> 0,
@@ -35,7 +38,7 @@ export async function loadWebAricFromRemote(remotePath: string) {
   return new WebAric(wasm.instance);
 }
 
-export async function loadWebAric(data: Promise<Buffer>) {
+export async function loadWebAric(data: Promise<Buffer> | Buffer) {
   const wasm = await WebAssembly.instantiate(data);
   return new WebAric(wasm);
 }

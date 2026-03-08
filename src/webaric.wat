@@ -97,7 +97,7 @@
   ;;   local.get $mid_zooms
   ;; )
 
-  (func $_zoom_low (export "_zoom_low")
+  (func $_zoom_low (export "zoom_low")
     ;; Zoom low
     (param $low i32)
     (param $mid i32)

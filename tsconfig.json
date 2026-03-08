@@ -7,7 +7,7 @@
     "moduleResolution": "nodenext",
     "allowJs": true,
     "inlineSourceMap": true,
-    "outDir": "./lib/",
+    "outDir": "./lib",
     "isolatedModules": true,
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
@@ -27,5 +27,6 @@
   "ts-node": {
     "esm": true
   },
-  "include": ["src/**/*"]
+  "include": ["src/**/*", "tests/webaric_test.ts"],
+  "exclude": ["./dist", "./lib"]
 }
