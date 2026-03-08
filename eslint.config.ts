@@ -1,0 +1,145 @@
+import js from '@eslint/js';
+import globals from 'globals';
+import tseslint from 'typescript-eslint';
+import json from '@eslint/json';
+import {defineConfig} from 'eslint/config';
+
+export default defineConfig([
+  {
+    files: ['**/*.{js,mjs,cjs,ts,mts,cts}'],
+    plugins: {js},
+    extends: ['js/recommended'],
+    languageOptions: {globals: {...globals.browser, ...globals.node}},
+    rules: {
+      'prettier/prettier': 2,
+      'no-inner-declarations': 0,
+      'no-case-declarations': 0,
+
+      '@typescript-eslint/no-unused-vars': [
+        2,
+        {
+          argsIgnorePattern: '^_',
+        },
+      ],
+
+      'no-cond-assign': 0,
+      'no-unexpected-multiline': 2,
+      curly: [2, 'multi-line'],
+      'guard-for-in': 2,
+      'no-caller': 2,
+      'no-extend-native': 2,
+      'no-extra-bind': 2,
+      'no-invalid-this': 2,
+      'no-multi-spaces': 2,
+      'no-multi-str': 2,
+      'no-new-wrappers': 2,
+      'no-throw-literal': 2,
+      'no-with': 2,
+      'prefer-promise-reject-errors': 2,
+
+      'array-bracket-newline': 'off',
+      'array-bracket-spacing': [2, 'never'],
+      'array-element-newline': 'off',
+      'block-spacing': [2, 'never'],
+
+      camelcase: [
+        2,
+        {
+          properties: 'never',
+        },
+      ],
+
+      'comma-dangle': [2, 'always-multiline'],
+      'comma-spacing': 2,
+      'comma-style': 2,
+      'computed-property-spacing': 2,
+      'eol-last': 2,
+      'func-call-spacing': 2,
+      'key-spacing': 2,
+      'keyword-spacing': 2,
+      'linebreak-style': 2,
+
+      'max-len': [
+        2,
+        {
+          code: 80,
+          tabWidth: 2,
+          ignoreUrls: true,
+        },
+      ],
+
+      'new-cap': 2,
+      'no-array-constructor': 2,
+      'no-mixed-spaces-and-tabs': 2,
+
+      'no-multiple-empty-lines': [
+        2,
+        {
+          max: 2,
+        },
+      ],
+
+      'no-new-object': 2,
+      'no-tabs': 2,
+      'no-trailing-spaces': 2,
+      'object-curly-spacing': 2,
+
+      'one-var': [
+        2,
+        {
+          var: 'never',
+          let: 'never',
+          const: 'never',
+        },
+      ],
+
+      'padded-blocks': [2, 'never'],
+      'quote-props': [2, 'consistent'],
+      semi: 2,
+      'semi-spacing': 2,
+      'space-before-blocks': 2,
+
+      'space-before-function-paren': [
+        2,
+        {
+          asyncArrow: 'always',
+          anonymous: 'never',
+          named: 'never',
+        },
+      ],
+
+      'spaced-comment': [2, 'always'],
+      'switch-colon-spacing': 2,
+      'constructor-super': 2,
+      'generator-star-spacing': [2, 'after'],
+      'no-new-symbol': 2,
+      'no-this-before-super': 2,
+      'no-var': 2,
+
+      'prefer-const': [
+        2,
+        {
+          destructuring: 'all',
+        },
+      ],
+
+      'prefer-rest-params': 2,
+      'prefer-spread': 2,
+      'rest-spread-spacing': 2,
+      'yield-star-spacing': [2, 'after'],
+    },
+  },
+  tseslint.configs.recommended,
+  {
+    files: ['**/*.json'],
+    plugins: {json},
+    language: 'json/json',
+    extends: ['json/recommended'],
+  },
+  {
+    files: ['**/*.jsonc'],
+    plugins: {json},
+    language: 'json/jsonc',
+    extends: ['json/recommended'],
+  },
+]);

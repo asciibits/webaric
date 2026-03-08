@@ -18,32 +18,38 @@
     "url": "git+https://github.com/asciibits/webaric.git"
   },
   "license": "MIT",
-    "devDependencies": {
+  "devDependencies": {
+    "@eslint/eslintrc": "^3.3.4",
+    "@eslint/js": "^10.0.1",
+    "@eslint/json": "^1.0.1",
+    "@eslint/markdown": "^7.5.1",
     "@types/jasmine": "^6.0.0",
     "@types/node": "^25.3.3",
     "@typescript-eslint/eslint-plugin": "^8.56.1",
     "@typescript-eslint/parser": "^8.56.1",
+    "binaryen": "^125.0.0",
+    "css-minify": "^2.1.0",
     "esbuild": "^0.27.3",
-    "eslint": "^10.0.2",
+    "eslint": "^10.0.3",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.5",
+    "globals": "^17.4.0",
+    "html-minifier-terser": "^7.2.0",
     "jasmine": "^6.1.0",
     "prettier": "^3.8.1",
     "ts-node": "^10.9.2",
     "tsx": "^4.21.0",
-    "typescript": "^5.9.3"
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.56.1"
   },
   "author": "asciibits",
   "type": "module",
-    "dependencies": {
-    "@eslint/eslintrc": "^3.3.4",
-    "@eslint/js": "^10.0.1",
-    "css-minify": "^2.1.0",
-    "globals": "^17.4.0",
-    "html-minifier-terser": "^7.2.0"
-  },
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "npm run build && npx tsx ./node_modules/jasmine/bin/jasmine.js --config=./spec/support/jasmine.json --seed=${RANDOM}",
+    "clean": "rm -rf ./lib/*",
+    "prettier-format": "prettier --config .prettierrc '**/*.ts' '**/*.html' '**/*.css' --write",
+    "build": "npx wat2wasm src/webaric.wat -o lib/webaric.wasm && tsc",
+    "dist": "./dist.sh"
   }
 }
