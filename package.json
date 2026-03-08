@@ -18,8 +18,30 @@
     "url": "git+https://github.com/asciibits/webaric.git"
   },
   "license": "MIT",
+    "devDependencies": {
+    "@types/jasmine": "^6.0.0",
+    "@types/node": "^25.3.3",
+    "@typescript-eslint/eslint-plugin": "^8.56.1",
+    "@typescript-eslint/parser": "^8.56.1",
+    "esbuild": "^0.27.3",
+    "eslint": "^10.0.2",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-prettier": "^5.5.5",
+    "jasmine": "^6.1.0",
+    "prettier": "^3.8.1",
+    "ts-node": "^10.9.2",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
   "author": "asciibits",
   "type": "module",
+    "dependencies": {
+    "@eslint/eslintrc": "^3.3.4",
+    "@eslint/js": "^10.0.1",
+    "css-minify": "^2.1.0",
+    "globals": "^17.4.0",
+    "html-minifier-terser": "^7.2.0"
+  },
   "main": "index.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
