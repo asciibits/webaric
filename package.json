@@ -46,7 +46,9 @@
   "main": "index.js",
   "scripts": {
     "build": "tsc && npx -p wabt wat2wasm src/webaric.wat -o lib/webaric.wasm",
-    "test": "node --import tsx --test ./tests/**/*",
+    "ibuild": "find ./src | entr -s 'npm run build'",
+    "test": "npx tsx --test",
+    "itest": "find ./tests ./lib | entr -s 'npm run test -- --test-reporter dot'",
     "clean": "rm -rf ./lib/*",
     "prettier-format": "prettier --config .prettierrc '**/*.ts' '**/*.html' '**/*.css' --write",
     "dist": "./dist.sh"

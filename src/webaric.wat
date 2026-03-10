@@ -1,124 +1,282 @@
 (module
   ;; DEBUG_START
-  (func $logZoomStart (import "test" "zoomStart") (param i32 i32))
-  (func $logZoomEnd (import "test" "zoomEnd") (param i32 i32 i32 i32))
+  (func $log1 (import "test" "log1") (param i32))
+  (func $log2 (import "test" "log2") (param i32 i32))
+  (func $log3 (import "test" "log3") (param i32 i32 i32))
+  (func $log4 (import "test" "log4") (param i32 i32 i32 i32))
+  (func $log5 (import "test" "log5") (param i32 i32 i32 i32 i32))
+  (func $log6 (import "test" "log6") (param i32 i32 i32 i32 i32 i32))
   ;; DEBUG_END
 
-  (func $min (param i32 i32) (result i32)
+  (func $min32 (export "_min32") (param i32 i32) (result i32)
     (select
       (local.get 0)
       (local.get 1)
       (i32.le_u (local.get 0) (local.get 1))
     )
   )
-  (func $max (param i32 i32) (result i32)
+  (func $max32 (export "_max32") (param i32 i32) (result i32)
     (select
       (local.get 0)
       (local.get 1)
       (i32.ge_u (local.get 0) (local.get 1))
     )
   )
-
-  (func (export "encode_bit")
-    (param $low i32)
-    (param $high i32)
-    (param $scratch i64)
-    (param $bit_pos i32)
-    (param $p_num i32)
-    (param $p_den i32)
-    (param $bit i32)
-
-    ;; the new low
-    (result i32)
-    ;; the new high
-    (result i32)
-    ;; the new scratch
-    (result i64)
-    ;; the new bit_pos
-    (result i32)
-
-    (local $mid i32)
-
-    ;; mid = (p_num * (high - low - 1) + p_den / 2) / p_den + low
-    ;; mid = min(mid, high - (p_num != p_den))
-    ;; mid = max(mid, low + (p_num != 0))
-    (local.set $mid
-      (call $max
-        (call $min
-          (i32.add
-            (i32.wrap_i64
-              (i64.div_u
-                (i64.add
-                  (i64.mul
-                    (i64.extend_i32_u (local.get $p_num))
-                    (i64.extend_i32_u (i32.sub (i32.sub (local.get $high) (local.get $low)) (i32.const 1)))
-                  )
-                  (i64.extend_i32_u (i32.shr_u (local.get $p_den) (i32.const 1)))
-                )
-                (i64.extend_i32_u (local.get $p_den))
-              )
-            )
-            (local.get $low)
-          )
-          (i32.sub (local.get $high) (i32.ne (local.get $p_num) (local.get $p_den)))
-        )
-        (i32.add (local.get $low) (i32.ne (local.get $p_num) (i32.const 0)))
-      )
-    )
-
-    (i32.const 0)
-    (i32.const 0)
-    (i64.const 0)
-    (i32.const 0)
+  (func $not32 (param i32) (result i32)
+    (i32.xor (local.get 0) (i32.const -1))
   )
 
-  ;; Zoom into the window until we can no longer zoom into the high 16 bit
-  ;; region, nor the low 16 bit region, nor the middle 16 bit region.
+  (func $make4x32 (param i32 i32 i32 i32) (result v128)
+    (v128.const i64x2 0 0)
+    (i32x4.replace_lane 0 (local.get 0))
+    (i32x4.replace_lane 1 (local.get 1))
+    (i32x4.replace_lane 2 (local.get 2))
+    (i32x4.replace_lane 3 (local.get 3))
+  )
+
+  (func $make2x32 (param i32 i32) (result v128)
+    (v128.const i64x2 0 0)
+    (i32x4.replace_lane 0 (local.get 0))
+    (i32x4.replace_lane 1 (local.get 1))
+  )
+
+  (func $get4x32 (param v128) (result i32 i32 i32 i32)
+    (i32x4.extract_lane 0 (local.get 0))
+    (i32x4.extract_lane 1 (local.get 0))
+    (i32x4.extract_lane 2 (local.get 0))
+    (i32x4.extract_lane 3 (local.get 0))
+  )
+
+  (func $get2x32 (param v128) (result i32 i32)
+    (i32x4.extract_lane 0 (local.get 0))
+    (i32x4.extract_lane 1 (local.get 0))
+  )
+
+  ;; apply the appropriate zoom for the (up to) 4 values in $v
+  (func $apply_zoom
+    (param $v v128)
+    (param $known_bits i32)
+    (param $trailing_mids i32)
+    (result v128)
+
+    (v128.xor
+      (i32x4.shl
+        (local.get $v)
+        (i32.add (local.get $known_bits) (local.get $trailing_mids))
+      )
+      (i32x4.splat
+        (i32.shl
+          (i32.gt_u (local.get $trailing_mids) (i32.const 0))
+          (i32.const 31)
+        )
+      )
+    )
+  )
+
+  ;; Calculate a weighted mid-point value in the range [low, high] proportional
+  ;; to p_n / p_d.
   ;;
-  ;; When zooming in, the idea is to keep doubling the gap between low and high
-  ;; until there's no more room within the scope of an i32. The trick is to
-  ;; zoom in a way to make resolving the high/low bits managable.
-  ;; This implementation was inspired (and heavily assisted) by the guide at
-  ;; https://marknelson.us/posts/2014/10/19/data-compression-with-arithmetic-coding.html
+  ;; Note: A $p_d value of zero will trap due to division by zero. Use $mid_i32
+  ;; for a version that works on the full 2^32 range.
+  (func $mid_ratio (export "_mid_ratio")
+    ;; The low value. 0 <= $low < 2^32-1
+    (param $low i32)
+    ;; The high value. $low < $high-1 < 2^32
+    ;; Note: A 0 indicates 2^32.
+    (param $high i32)
+    ;; numerator of the probability. p = p_n / p_d
+    ;; 0 <= p_n <= p_d
+    (param $p_n i32)
+    ;; denominator of the probability. p = p_n / p_d
+    ;; 0 < p_d < 2^32
+    (param $p_d i32)
+
+    ;; the weighted mid-point. $low <= result <= $high, except that in the case
+    ;; where $high is 0 (representing 2^32), and $p_n == $p_d, then the result
+    ;; will be the i64 value 2^32, not the truncated i32 value 0.
+    (result i64)
+
+    ;; mid = start + offset
+    ;; 0 <= mid <= 2^32
+    (i64.add
+      ;; offset = range * p_n / p_d
+      ;; 0 <= offset <= range
+      (i64.div_u
+        (i64.mul
+          ;; range = high - low - 1
+          ;; 0 < range < 2^32
+          (i64.extend_i32_u
+            (i32.sub
+              (i32.sub (local.get $high) (local.get $low))
+              (i32.const 1)
+            )
+          )
+          (i64.extend_i32_u (local.get $p_n))
+        )
+        (i64.extend_i32_u (local.get $p_d))
+      )
+      ;; start = low + (p_n == 0 ? 0 : 1)
+      (i64.extend_i32_u
+        (i32.add
+          (local.get $low)
+          (i32.ne (local.get $p_n) (i32.const 0))
+        )
+      )
+    )
+  )
+
+  ;; Calculate a weighted mid-point value in the range [low, high] proportional
+  ;; to p / 2^32.
+  (func $mid_i32 (export "_mid_i32")
+    ;; The low value. 0 <= $low < 2^32-1
+    (param $low i32)
+    ;; The high value. $low < $high-1 < 2^32
+    ;; Note: A 0 indicates 2^32.
+    (param $high i32)
+    ;; probability of a '1' bit: p/2^32
+    ;; 0 <= p <= 2^32
+    (param $p i64)
+
+    ;; the weighted mid-point. $low <= result <= $high, except that in the case
+    ;; where $high is 0 (representing 2^32), and $p == 2^32 then the result
+    ;; will be the i64 value 2^32, not the truncated i32 value 0.
+    (result i64)
+
+    ;; mid = start + offset
+    ;; 0 <= mid <= 2^32
+    (i64.add
+      ;; offset = range * p_n / p_d
+      ;; 0 <= offset <= range
+      (i64.shr_u
+        (i64.mul
+          ;; range = high - low - 1
+          ;; 0 < range < 2^32
+          (i64.extend_i32_u
+            (i32.sub
+              (i32.sub (local.get $high) (local.get $low))
+              (i32.const 1)
+            )
+          )
+          (local.get $p)
+        )
+        (i64.const 32)
+      )
+      ;; start = low + (p == 0 ? 0 : 1)
+      (i64.extend_i32_u
+        (i32.add
+          (local.get $low)
+          (i64.ne (local.get $p) (i64.const 0))
+        )
+      )
+    )
+  )
+
+  ;; Find the weighted midpoint for a given low/high region, and a given
+  ;; percentage.
   ;;
-  ;; Below, we use the values:
-  ;;   MAX =           2^32 (Not actually used - outside range of i32)
-  ;;   THREE_QUARTER = 0xC0000000 = 0b110..0  // 32 bits
-  ;;   HALF =          0x80000000 = 0b100..0  // 32 bits
-  ;;   QUARTER =       0x40000000 = 0b010..0  // 32 bits
-  ;;   ZERO =          0x00000000 = 0b000..0  // 32 bits
+  ;; Note: This algorith only uses operations that are perfectly specified by
+  ;; the IEEE 754 spec, and so this function is consistent across all compliant
+  ;; WASM implementations. Assuming the f64 param was generated using *only*
+  ;; those instructions with strict rounding requirements, this function
+  ;; *should* be platform independent. That includes the operators:
+  ;; +, -, *, /, and sqrt. All other operations *will* have platform dependent
+  ;; rounding issues. This includes values generated from the suite of
+  ;; Javascript functions defined in Math. (Possibly with the exception of
+  ;; Math.sqrt; Through V15 of the ECMA-262 spec, Math.sqrt was allowed to be
+  ;; an "implementation-approximated" value:
+  ;; https://262.ecma-international.org/15.0/index.html?#sec-math.sqrt.
+  ;; Starting with V16 (2025), Math.sqrt is required to be IEEE754 compliant:
+  ;; https://262.ecma-international.org/16.0/index.html?#sec-math.sqrt )
+  ;; Regardless, the f64.sqrt and f32.sqrt are both well defined, and thus
+  ;; consistent.
+  (func $mid_f64 (export "_mid_f64")
+    ;; The low value. 0 <= $low < 2^32-1
+    (param $low i32)
+    ;; The high value. $low < $high-1 < 2^32
+    ;; Note: A 0 indicates 2^32.
+    (param $high i32)
+    ;; Percentage of range. 0 <= $p <= 1.0
+    (param $p f64)
+
+    ;; the weighted mid-point. $low <= result <= $high, except that in the case
+    ;; where $high is 0 (representing 2^32), and $p == 0 and $bit != 0, then
+    ;; the result will be the i64 value 2^32, not the truncated i32 value 0.
+    (result i64)
+
+    (call $mid_i32
+      (local.get $low)
+      (local.get $high)
+      (i64.trunc_sat_f64_u (f64.mul (local.get $p) (f64.const 0x100000000)))
+    )
+  )
+
+
+  ;; Calculate the number of times we can "zoom" into a windowed region while
+  ;; keeping the boundaries within convenient ranges.
   ;;
-  ;; * If both low and high are >= HALF: double their distance below 2^32;
-  ;;   emit a '1' bit to indicate "zoom high". Ex: the value THREE_QUARTER
-  ;;   would become HALF. The algorithm is: x -> (x-HALF)*2
+  ;; The range considered is all possible i32 values for both $low and $high.
+  ;; 0 <= $low < $high <= 2^32. Note that when $high is 0, that actually
+  ;; represents the truncated value 2^32.
   ;;
-  ;; * If both low and high are < HALF: double their distance above 0; emit a
-  ;;   '0' bit to indicate "zoom low". Ex: the value QUARTER would become HALF.
-  ;;    The algorithm is: x -> x*2
+  ;; Every "zoom" represents the gap between $high and $low doubling. We
+  ;; consider only three potential zooms:
   ;;
-  ;; * If low >= QUARTER and high <= THREE_QUARTER: double their distance from
-  ;;   HALF. The algorithm is: x -> (x-QUARTER)*2
-  ;;   Don't emit a bit yet - we only emit bits when zooming high or low.
-  ;;   Instead, keep a tally of these consecutive "zoom mid"s, and eventually
-  ;;   resolve them into a sequence of zoom high/low as follows:
-  ;;   If the first zoom after a series of zoom-mids is a zoom high, this
-  ;;   resolves to a single '1' bit followed by enough '0's to account for all
-  ;;   the zooms. If instead the first zoom aafter the mid-zooms is a low, this
-  ;;   resolves to a single '0' bit followed by a string of '1's.
+  ;; "zoom low": both $low and ($high-1) are in the bottom half of i32 values
+  ;; (i.e. their leading bit is a 0). In this case, both values are doubled,
+  ;; and we record a "zoom_low". Note: because the values are alread <= 2^31,
+  ;; doubling their values keeps them within the i32 range.
+  ;;  
+  ;; "zoom high": both $low and ($high-1) are in the top half of i32 values
+  ;; (i.e. their leading bit is a 1). In this case, we first subtract 2^31,
+  ;; then double, and we record a "zoom_high". By subtracting 2^31 first, we
+  ;; keep the resulting values in the i32 range.
   ;;
-  ;; In all cases above, the zoom logic keeps the low and high bounds within
-  ;; the scope of an i32. When all zooming is done, the distance between high
-  ;; and low is guaranteed to be greater than QUARTER, and as high as MAX.
+  ;; "zoom mid": both $low and ($high-1) are between the "quarter" and "three
+  ;; quarter" i32 values, where "quarter" is (2^32 / 4) or 2^30, and
+  ;; "three quarter" is (2^32 * 3 / 4) or (2^31 + 2^30). In this case, we first
+  ;; subtract 2^30, then double, and we record a "zoom_mid". By subtracting
+  ;; 2^30, we keep the resulting values in the i32 range.
   ;;
-  ;; Also note: Given any starting low/high range, the serier of zooms will
-  ;; always start with 0 or more low/high zooms, followed by 0 or more
-  ;; mid-zooms. But, once a mid-zoom happens, any remaining zooms will also be
-  ;; "mid". This is because during a mid-zoom the high and low will contionue
-  ;; to straddle the HALF point preventing either high<=HALF or low>=HALF.
+  ;; This function needs to communicate the ordered list of available zooms for
+  ;; the provided range. So, something like: ["high", "low", "low", "mid", ...]
   ;;
-  ;; Also note: the max number of zooms is 31, and that can only happen if the
-  ;; very last zoom just happens to perfectly max out the entire range
-  ;; (low = 0, high = 2^32-1)
+  ;; One simplification is recognizing that a mid zoom can't be followed by
+  ;; either a low or a high zoom. This is because a mid zoom only happens when
+  ;; $high/$low straddle 2^31 - one is above, the other below. (If both were
+  ;; below, we would instead opt for a low zoom, and if both were above, a high
+  ;; zoom). After a mid-zoom, $high will still be above 2^31 - in fact it will
+  ;; be twice as far above 2^31 as it was before the zoom. Similarly, $low will
+  ;; be twice as far below 2^31 as it was previously. With the boundaries
+  ;; continuing to straddle the mid-point, only another mid zoom will be
+  ;; possible.
+  ;;
+  ;; Since all mid-zooms (if there are any) occur after all high/low zooms, we
+  ;; can instead return two values: the list of high/low zooms, and a single
+  ;; mid_zoom_count.
+  ;;
+  ;; Another simplification is that the initial set of high/low zooms will
+  ;; look very similar to the bit pattern of $low and ($high-1). We only zoom
+  ;; high if both have a leading 1 bit. And we only zoom low if both have a
+  ;; leading 0 bit. So, we could just return the leading bit pattern of $low;
+  ;; Or, even easier, just the number of available high/low zooms and let the
+  ;; caller pull the bit pattern out of low.
+  ;;
+  ;; So, this function returns two i32 values: "outer_zooms" (i.e. the number
+  ;; of high/low zooms), and "mid_zooms".
+  ;;
+  ;; Note: the max number of zooms is 32:
+  ;;
+  ;;   0 <= ($outer_zooms + $mid_zooms) <= 32
+  ;;
+  ;; Put another way, we can only double the minimum gap (1) 32 times before
+  ;; we hit the largest allowed window.
+  ;;
+  ;; It's also worth noting that a mid-zoom can't be the 32nd zoom. There is no
+  ;; way for a single remaining bit, after all the previous zooms, to have the
+  ;; necessary condition of $low>2^30 and $high<=(2^31+2^30). So, the result
+  ;; can be further restricted to:
+  ;;
+  ;; if $mid_zooms > 0: 0 <= ($outer_zooms + $mid_zooms) <= 31
   ;;
   ;; Now for the optimized algorithm:
   ;;
@@ -138,36 +296,64 @@
   ;; the high bits as: 01 -> 00, 10 -> 01. I.e. the high bit becomes '0', and
   ;; the 2nd high bit is flipped. Then it is bit shifted as above.
   ;;
-  ;; Note that a high zoom is only possible when both low and (high-1) values
-  ;; have a high bit of 1. Similarly, a low zoom only happens when both
+  ;; Note that a high zoom is only possible when both $low and ($high-1) values
+  ;; have a high bit of 1. (herafter, references to $high will actually be to
+  ;; the value ($high-1) Similarly, a low zoom only happens when both
   ;; have a high bit of 0. To find the set of initial high/low zooms, we just
   ;; see how many high order bits both high and low have in common. Those
-  ;; become the "emitted bits".
+  ;; become the "known bits".
   ;;
   ;; After that initial set of matching high order bits, the next bit of low
-  ;; and high will necessarily be different. A "mid zoom" is possible if the
-  ;; following bit of high is a 0, and the following bit of low is a 1. And
-  ;; this continues, as long as high has another 0 bit, and low has another 1
-  ;; bit, we continue to have a "zoom mid"
+  ;; and high will necessarily be different: low will have a 0, high a 1. A
+  ;; "mid zoom" is possible if the following bit of high is a 0 (yielding 10),
+  ;; and the following bit of low is a 1 (yielding 01). Additional mid-zooms
+  ;; are possible so long as $high continues to have 0 bits, and $low continues
+  ;; to have 1 bits.
   ;;
-  ;; For example, consider the example:
+  ;; Consider the example:
   ;;
-  ;; high = 0b101000..00 // 32 bits, .. = 0s
-  ;; low =  0b100110..00 // 32 bits, .. = 0s
+  ;; high = 0b10100100..
+  ;; low  = 0b10011001..
   ;;
-  ;; These have a matching set of high bits: '10', indicating a high then low
-  ;; zoom. Next, we have a '100' in the high, and a '011' in the low. That
-  ;; indicates 2 mid-zooms (Not 3, but 2 - 1 less than the pattern length)
+  ;; xor  = high ^ low
+  ;;      = 0b00111101..
   ;;
-  ;; So, we have 2 "normal" bits, 2 "trailing mid zooms", and a resulting
-  ;; low/high as:
+  ;; The two leading zeros of that xor represent the "known bits" - that is,
+  ;; we know we can zoom twice (in this case, once high, then once low).
   ;;
-  ;; high = 0b10..00 // 32 bits
-  ;; low =  0b00..00 // 32 bits
+  ;; known_bits = clz(xor) // = 2 in this example
   ;;
-  ;; That is, each value left shifted 4 times (2 for the high/low, 2 for the
-  ;; mid), and because there were >0 mids, the new high bit is flipped.
-  (func $_zoom (export "_zoom")
+  ;; After the zeros the xor will have a 1 bit where the low is necessarily a 0
+  ;; and the high is a 1. After that, we want to know just how many cases exist
+  ;; where low has a 1 while high has a 0.
+  ;;
+  ;; masked_xor = low & xor
+  ;;      = 0b00011001..
+  ;;
+  ;; This represents a bit pattern where low has a 1 AND high has a 0. For the
+  ;; first (known_bits + 1) bits, we know that the masked_xor will be zero
+  ;; (For the first known_bits bits, the bits match so the condition won't be
+  ;; met, and for the following bit we know low has a 0). After that, every
+  ;; consecutive 1 bit is a valid mid-zoom.
+  ;;
+  ;; shifted_masked_xor = masked_xor << (known_bits + 1)
+  ;;      = 0b11001..000
+  ;;
+  ;; Now with the 1 bits representing the mid-zooms at the left, we can invert
+  ;; the pattern and count the leading zeros:
+  ;;
+  ;; mid_zooms = clz(~shifted_masked_xor) // = 2 in this example
+  ;;
+  ;; To summarize:
+  ;;
+  ;; xor = low ^ (high - 1)
+  ;; known_bits = clz(xor)
+  ;; mid_zooms = clz(~((xor & low) << (known_bits + 1)))
+  ;;
+  ;; That's 8 total operations with no branching for an algorithm that could
+  ;; span a page with loops and branching if implemented in the naive way.
+  ;; Pretty sweet!
+  (func $zoom (export "_zoom")
     ;; Initial condition:
     ;;   0 <= low < mid < high <= 2^32 (where 2^32 is represented as 0)
     ;; Where "mid" is some i32 value that is between low and high (exclusively)
@@ -179,97 +365,47 @@
     ;; The upper bound (exclusive). Between 2 and 2^32 (note: 2^32 will be = 0)
     (param $high i32)
 
-    ;; the new low after all the zooms
+    ;; the # of known bits to shift
     (result i32)
-    ;; the new high after all the zooms
-    (result i32)
-    ;; the # of initial low/high zooms before any trailing mid-zooms
-    (result i32)
-    ;; the # of mid-zooms after the initial low/high zooms
+    ;; the # of trailing mids
     (result i32)
 
-    (local $high_incl i32)
-    (local $high_match_count i32)
-    (local $mask i32)
-    (local $zoom_count i32)
-    (local $flip_high i32)
+    ;; the matching values of low/high
+    (local $xor i32)
+    ;; the # of "known" bits - i.e. the number of high or low zooms
+    (local $known_bits i32)
 
     ;; DEBUG_START
     (local $dbg1 i32)
     (local $dbg2 i32)
-    (local $dbg3 i32)
-    (local $dbg4 i32)
 
-    (call $logZoomStart (local.get $low) (local.get $high))
     ;; DEBUG_END
 
-    ;; Many parts of this algorithm use the inclusive value of $high
-    (local.set $high_incl (i32.sub (local.get $high) (i32.const 1)))
+    ;; xor = low ^ (high - 1)
+    (local.set $xor
+      (i32.xor (local.get $low) (i32.sub (local.get $high) (i32.const 1)))
+    )
 
-    ;; low_mask = 0b011..11 >>> high_match_count; a mask to remove the
-    ;; matching bits, plus the first non-matching bit
-    (local.set $mask
-      (i32.shr_u
-        (i32.const 0x7FFFFFFF)
-        ;; high_match_count = clz(comp_bits) ;; i.e. # of leading zeros
-        (local.tee $high_match_count
-          (i32.clz
-            ;; comp_bits = low ^ high
-            (i32.xor (local.get $low) (local.get $high_incl))
-          )
+    ;; result: # of known bits
+    ;; known_bits = clz(xor)
+    (local.tee $known_bits (i32.clz (local.get $xor)))
+    ;; result: # of mid zooms
+    ;; = clz(~((xor & low) << (known_bits + 1)))
+    (i32.clz
+      (call $not32
+        (i32.shl
+          (i32.and (local.get $xor) (local.get $low))
+          (i32.add (local.get $known_bits) (i32.const 1))
         )
       )
     )
-
-    ;; zoom_count = min(clz(high & mask), clz(~low & mask)) - 1
-    ;; i.e. find the # of bits where high = 0 and low = 1 after the initial
-    ;; set
-    (local.set $zoom_count
-      (i32.sub 
-        (call $min
-          (i32.clz
-            (i32.and (i32.xor (local.get $low) (i32.const -1)) (local.get $mask))
-          )
-          (i32.clz (i32.and (local.get $high_incl) (local.get $mask)))
-        )
-        (i32.const 1)
-      )
-    )
-
-    ;; flip_high = 0b100..00 * (zoom_count > high_match_count)
-    ;; i.e. a mask for the high bit if there are any mid zooms
-    (local.set $flip_high
-      (i32.mul
-        (i32.const 0x80000000)
-        (i32.gt_u (local.get $zoom_count) (local.get $high_match_count))
-      )
-    )
-
-    ;; result: low = (low << zoom_count) ^ flip_high
-    (i32.xor
-      (i32.shl (local.get $low) (local.get $zoom_count))
-      (local.get $flip_high)
-    )
-    ;; result: high = (high << zoom_count) ^ flip_high | (1 << zoom_count - 1)
-    (i32.xor
-      (i32.shl (local.get $high) (local.get $zoom_count))
-      (local.get $flip_high)
-    )
-    ;; result: standard zooms
-    (local.get $high_match_count)
-    ;; result: mid zooms
-    (i32.sub (local.get $zoom_count) (local.get $high_match_count))
 
     ;; DEBUG_START
-    (local.set $dbg4)
-    (local.set $dbg3)
     (local.set $dbg2)
     (local.set $dbg1)
-    (call $logZoomEnd (local.get $dbg1) (local.get $dbg2) (local.get $dbg3) (local.get $dbg4))
+    (call $log3 (i32.const 0xAF) (local.get $dbg1) (local.get $dbg2))
     (local.get $dbg1)
     (local.get $dbg2)
-    (local.get $dbg3)
-    (local.get $dbg4)
     ;; DEBUG_END
   )
 )
