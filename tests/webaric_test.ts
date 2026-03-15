@@ -105,81 +105,57 @@ suite('Arithmetic Coder', () => {
   });
   suite('Encoding Zooms', () => {
     test('no zoom low', () => {
-      const [outerZooms, midZooms] = exports._zoom(
-        0x3fffffff00000000n,
-        0x8000000000000000n,
-      );
-      assert.equal(outerZooms, 0n);
-      assert.equal(midZooms, 0n);
+      const [outerZooms, midZooms] = exports._zoom(0x3fffffff, 0x80000000);
+      assert.equal(outerZooms, 0);
+      assert.equal(midZooms, 0);
     });
     test('single zoom low', () => {
-      const [outerZooms, midZooms] = exports._zoom(
-        0x3fffffff00000000n,
-        0x7fffffff00000000n,
-      );
-      assert.equal(outerZooms, 1n);
-      assert.equal(midZooms, 0n);
+      const [outerZooms, midZooms] = exports._zoom(0x3fffffff, 0x7fffffff);
+      assert.equal(outerZooms, 1);
+      assert.equal(midZooms, 0);
     });
     test('single zoom mid (lower)', () => {
-      const [outerZooms, midZooms] = exports._zoom(
-        0x4000000000000000n,
-        0x8000000000000000n,
-      );
-      assert.equal(outerZooms, 0n);
-      assert.equal(midZooms, 1n);
+      const [outerZooms, midZooms] = exports._zoom(0x40000000, 0x80000000);
+      assert.equal(outerZooms, 0);
+      assert.equal(midZooms, 1);
     });
     test('no zoom high', () => {
-      const [outerZooms, midZooms] = exports._zoom(
-        0x7fffffff00000000n,
-        0xc000000000000000n,
-      );
-      assert.equal(outerZooms, 0n);
-      assert.equal(midZooms, 0n);
+      const [outerZooms, midZooms] = exports._zoom(0x7fffffff, 0xc0000000);
+      assert.equal(outerZooms, 0);
+      assert.equal(midZooms, 0);
     });
     test('single zoom high', () => {
-      const [outerZooms, midZooms] = exports._zoom(
-        0x8000000000000000n,
-        0xc000000000000000n,
-      );
-      assert.equal(outerZooms, 1n);
-      assert.equal(midZooms, 0n);
+      const [outerZooms, midZooms] = exports._zoom(0x80000000, 0xc0000000);
+      assert.equal(outerZooms, 1);
+      assert.equal(midZooms, 0);
     });
     test('single zoom mid (higher)', () => {
-      const [outerZooms, midZooms] = exports._zoom(
-        0x7fffffff00000000n,
-        0xbfffffff00000000n,
-      );
-      assert.equal(outerZooms, 0n);
-      assert.equal(midZooms, 1n);
+      const [outerZooms, midZooms] = exports._zoom(0x7fffffff, 0xbfffffff);
+      assert.equal(outerZooms, 0);
+      assert.equal(midZooms, 1);
     });
     test('max zooms low', () => {
-      const [outerZooms, midZooms] = exports._zoom(0n, 0x100000000n);
-      assert.equal(outerZooms, 31n);
-      assert.equal(midZooms, 0n);
+      const [outerZooms, midZooms] = exports._zoom(0, 1);
+      assert.equal(outerZooms, 31);
+      assert.equal(midZooms, 0);
     });
     test('max zooms high', () => {
-      const [outerZooms, midZooms] = exports._zoom(
-        0xfffffffe00000000n,
-        0xffffffff00000000n,
-      );
-      assert.equal(outerZooms, 31n);
-      assert.equal(midZooms, 0n);
+      const [outerZooms, midZooms] = exports._zoom(0xfffffffe, 0xffffffff);
+      assert.equal(outerZooms, 31);
+      assert.equal(midZooms, 0);
     });
     test('max zooms mid', () => {
-      const [outerZooms, midZooms] = exports._zoom(
-        0x7fffffff00000000n,
-        0x8000000000000000n,
-      );
-      assert.equal(outerZooms, 0n);
-      assert.equal(midZooms, 31n);
+      const [outerZooms, midZooms] = exports._zoom(0x7fffffff, 0x80000000);
+      assert.equal(outerZooms, 0);
+      assert.equal(midZooms, 31);
     });
     test('many zooms arbitrary', () => {
       const [outerZooms, midZooms] = exports._zoom(
-        0b1011010100101011010100101001111000000000000000000000000000000000n,
-        0b1011010100101011010100101010000000000000000000000000000000000000n,
+        0b10110101001010110101001010011110,
+        0b10110101001010110101001010100000,
       );
-      assert.equal(outerZooms, 26n);
-      assert.equal(midZooms, 4n);
+      assert.equal(outerZooms, 26);
+      assert.equal(midZooms, 4);
     });
   });
 });
