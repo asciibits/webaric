@@ -14,24 +14,29 @@
   )
   ;; IMPORT_END
 
-  ;; apply the appropriate zoom for the (up to) 4 values in $v
+  ;; apply the appropriate zoom for the (up to) 4 values in $v. The $high values
+  ;; in 32-bit lanes 1 and 3 are assumed to be inclusive; before processing they
+  ;; have a 1 added to them, then subtracted off after.
   (func $apply_zoom
     (param $v v128)
     (param $outer_zooms i32)
     (param $trailing_mids i32)
     (result v128)
 
-    (v128.xor
-      (i32x4.shl
-        (local.get $v)
-        (i32.add (local.get $outer_zooms) (local.get $trailing_mids))
-      )
-      (i32x4.splat
-        (i32.shl
-          (i32.gt_u (local.get $trailing_mids) (i32.const 0))
-          (i32.const 31)
+    (i32x4.sub
+      (v128.xor
+        (i32x4.shl
+          (i32x4.add (local.get $v) (v128.const i32x4 0 1 0 1))
+          (i32.add (local.get $outer_zooms) (local.get $trailing_mids))
+        )
+        (i32x4.splat
+          (i32.shl
+            (i32.gt_u (local.get $trailing_mids) (i32.const 0))
+            (i32.const 31)
+          )
         )
       )
+      (v128.const i32x4 0 1 0 1)
     )
   )
 
@@ -140,12 +145,12 @@
   ;; xor  = high ^ low
   ;;      = 0b00111101..
   ;;
-  ;; The two leading zeros of that xor represent the "outer zooms" - that is,
+  ;; The two leading zeros of that $xor represent the "outer zooms" - that is,
   ;; we can zoom twice (in this case, once high, then once low).
   ;;
   ;; outer_zooms = clz(xor)  ;; = 2 in this example
   ;;
-  ;; After the zeros the xor will have a 1 bit where $low is necessarily a 0
+  ;; After the zeros the $xor will have a 1 bit where $low is necessarily a 0
   ;; and $high is a 1. After that, we want to know just how many cases exist
   ;; where $low has a 1 while $high has a 0.
   ;;
@@ -153,8 +158,8 @@
   ;;      = 0b00011001..
   ;;
   ;; This represents a bit pattern where $low has a 1 AND $high has a 0. For
-  ;; the first (outer_zooms + 1) bits, we know that the masked_xor will be zero
-  ;; (For the first outer_zooms bits, the bits match so the xor will be 0, and
+  ;; the first ($outer_zooms + 1) bits, we know that the $masked_xor will be zero
+  ;; (For the first $outer_zooms bits, the bits match so the $xor will be 0, and
   ;; for the following bit $low will be 0). After that, every consecutive 1 bit
   ;; is a valid mid-zoom.
   ;;
@@ -246,60 +251,56 @@
   ;; it will be evealuated as an extremely unlikely branch, allowing near zero
   ;; performance loss as the CPUs branch predictors do their job.
   ;;
-  ;; State parameters (initialize to 0 on first call, pass back in the result
-  ;;   state on subsequent calls):
+  ;; Input parameters:
   ;; i32 $low          : The (inclusive) lower bound for the current window
   ;; i32 $high         : The (inclusive) upper bound for the current window
-  ;; i32 $scratch      : Scratch space
-  ;; i32 $scratch_idx : The position within scratch after all currently
-  ;;                     resolved zomms (i.e. before and dangling zooms)
-  ;; i32 $dangling_idx : The position afer all dangling mid-zooms are resolved
-  ;;
-  ;; Note the invariant:
-  ;;   0 <= $low < $mid <= $high < 2^32
-  ;;
-  ;; Input parameters:
-  ;; i32 $mid : A value between $low (exclusive) and $high (inclusive). A value
-  ;;            closer to $high represents a high probability of a 1 bit, and
-  ;;            vice versa.
-  ;; i32 $bit : The bit to encode
   ;;
   ;; State results (see State parameters):
-  ;;    $low, $high, $scratch, $scratch_idx, $dangling_idx
+  ;;    $scratch, $scratch_idx, $dangling_idx
   ;;
   ;; Output results:
-  ;; i32 $result_count : The number of i32 result values produces. Either 0, 1,
+  ;; i32 $low         : The new $low after the zooms
+  ;; i32 $high        : The new $high after the zooms
+  ;; i32 $result_count: The number of i32 result values produces. Either 0, 1,
   ;;                     or (rarely) 2
-  ;; i32 $result     : 32 bits of output data, if $result_count > 0
+  ;; i64 $result      : 32 bits of output data, if $result_count > 0
   (func $encode_bit (export "_encode_bit")
+    ;; State Parameters (initialized to 0 for 1st call, copied from previous call
+    ;; for subsequent calls)
     ;;
-    ;; State values
+    ;; Workspace
+    (param $scratch i64)
+    ;; 0 <= scratch_idx < 32
+    (param $scratch_idx i64)
+    ;; Number of trailing mid zooms. scratch_idx <= dangling_idx < 64
+    (param $dangling_idx i64)
+
+    ;; Params
+    ;;
+    ;; Note the input requirements:
+    ;;   following a normal zoom: 0 <= $low <= $high < 2^32
+    ;;   following a mid-zoom:    0 <= $high < 2^31 <= $low < 2^32
     ;;
     ;; The lower bound (inclusive)
     (param $low i32)
     ;; The upper bound (inclusive)
     (param $high i32)
-    ;; Workspace
-    (param $scratch i64)
-    ;; 0 <= scratch_idx < 32
-    (param $scratch_idx i64)
-    ;; Number of trailing mid zooms
-    (param $dangling_idx i64)
-    ;; A value between $low and $high - the new boundary based on $bit
-    (param $mid i32)
-    ;; the value to encode
-    (param $bit i32)
 
-    ;; the new low after all the zooms
-    (result i32)
-    ;; tyhe new high after all the zooms
-    (result i32)
+    ;; State Results
+    ;;
     ;; scratch
     (result i64)
     ;; scratch_idx
     (result i64)
     ;; dangling_idx
     (result i64)
+
+    ;; Output results:
+    ;;
+    ;; the new low after all the zooms
+    (result i32)
+    ;; tyhe new high after all the zooms
+    (result i32)
     ;; result_count. Either 0, 1, or (rarely) 2
     (result i32)
     ;; result: set if result_count > 0
@@ -310,52 +311,36 @@
     (local $result_count i32)
     (local $result i64)
 
-    ;; process the bit and reset the range
-    (local.tee $low
-      (select (local.get $low) (local.get $mid) (local.get $bit))
-    )
-    (local.tee $high
-      (select (local.get $mid) (local.get $high) (local.get $bit))
-    )
-
-    call $zoom
+    (call $zoom (local.get $low) (local.get $high))
     local.set $mid_zooms
     local.tee $outer_zooms
 
-    ;; This if block leaves the new $low and $high on the stack
-    (if (result i32 i32)
+    (if
       (then
         ;; we have an outer zoom
 
         ;; Check for previously dangling mid-zooms
-        (i64.gt_u (local.get $dangling_idx) (local.get $scratch_idx))
         (if
+          (i64.gt_u (local.get $dangling_idx) (local.get $scratch_idx))
           (then
             ;; Resolve dangling mids
             ;;
-            ;; t = 0b1000.. ;; 64 bits
-            ;; b = (t >> scratch_idx) +/- (t >> dangling_idx)
-            ;;   -> 0b0000100001000 (if $low < t)
-            ;;   -> 0b0000011111000 (if $low >= t)
-            ;; this sets the appropriate bit pattern for the dangling mid
-            ;; resolution ( 01111.. or 10000..), plus sets the dangling bit
-            ;; to 1 for xor
+            ;; b = (0b100.. >> scratch_idx) - ((low < 2^31) << (64 - dangling_idx))
+            ;;            s    d
+            ;;   -> 0b0000100000000 (if $low < 2^31)
+            ;;   -> 0b0000011110000 (if $low >= 2^31)
             (local.set $scratch
               (i64.or
                 (local.get $scratch)
-                (i64.add
+                (i64.sub
                   (i64.shr_u
                     (i64.const 0x8000000000000000) (local.get $scratch_idx)
                   )
-                  (i64.mul
-                    (i64.shr_u
-                      (i64.const 0x8000000000000000) (local.get $dangling_idx)
+                  (i64.shl
+                    (i64.extend_i32_u
+                      (i32.lt_u (local.get $low) (i32.const 0x80000000))
                     )
-                    (select
-                      (i64.const 1)
-                      (i64.const -1)
-                      (i32.lt_u (i32.const 0x80000000) (local.get $low))
-                    )
+                    (i64.sub (i64.const 64) (local.get $dangling_idx))
                   )
                 )
               )
@@ -366,9 +351,7 @@
 
         ;; set the outer-zooms
         (local.set $scratch
-          ;; use xor rather than or so the leading bit can be flipped if we
-          ;; had processed and dangling mids
-          (i64.xor
+          (i64.or
             (local.get $scratch)
             (i64.shr_u
               (i64.shl
@@ -393,9 +376,9 @@
           (then
             (local.set $result (local.get $scratch))
 
-            ;; Leave this branch - it is predictably weighted to the `else`
-            (i64.ge_u (local.get $scratch_idx) (i64.const 64))
             (if
+              ;; Leave this branch - it is predictably weighted to the `else`
+              (i64.ge_u (local.get $scratch_idx) (i64.const 64))
               (then
                 ;; For this branch to occur, we must have at least 32
                 ;; consecutive zoom-mids. This branch will almost certainly
@@ -445,11 +428,13 @@
             (local.get $mid_zooms)
           )
         )
+        (local.set $high)
+        (local.set $low)
       )
       (else
         ;; no outer zooms - handle the dangles
-        (local.get $mid_zooms)
-        (if (result i32 i32)
+        (if
+          (local.get $mid_zooms)
           (then
             ;; new dangles, ensure they don't dangle past the end of $scratch
             (local.tee $dangling_idx
@@ -482,22 +467,21 @@
                 (local.get $mid_zooms)
               )
             )
-          )
-          (else
-            (local.get $low)
-            (local.get $high)
+            (local.set $high)
+            (local.set $low)
           )
         )
       )
     )
 
     ;; state
-    ;; low/high from the giant if block above
     (local.get $scratch)
     (local.get $scratch_idx)
     (local.get $dangling_idx)
 
     ;; actual results
+    (local.get $low)
+    (local.get $high)
     (local.get $result_count)
     (local.get $result)
   )

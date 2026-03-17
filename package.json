@@ -45,7 +45,7 @@
   "type": "module",
   "main": "index.js",
   "scripts": {
-    "build": "tsc && (for i in ./src/*.wat; do file=\"$(basename $i .wat)\"; npx -p wabt wat2wasm src/$file.wat -o lib/$file.wasm; done)",
+    "build": "./build.sh",
     "ibuild": "find ./src | entr -s 'npm run build'",
     "test": "tsx --test",
     "itest": "find ./tests ./lib | entr -s 'tsx --test --test-reporter dot'",

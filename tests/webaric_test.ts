@@ -76,6 +76,8 @@ before(async () => {
     log64_4: logi64arr,
     log64_5: logi64arr,
     log64_6: logi64arr,
+    random32: () => Math.floor(Math.random() * 0xffffffff),
+    nanonow: process.hrtime.bigint,
   };
   utils = await loadWasm(await readFile('./lib/utils.wasm'), {test});
   webaric = await loadWasm(await readFile('./lib/webaric.wasm'), {
@@ -87,6 +89,15 @@ before(async () => {
 beforeEach(() => {
   enableLogging = false;
 });
+
+// test(() => {
+//   let nanos = 0n;
+//   for (let i = 0; i < 100; i++) {
+//     enableLogging = true;
+//     nanos += utils._benchmark_reverse32(1024*1024);
+//   }
+//   console.log("Benchmark time: " + Number(nanos) / 100000000);
+// })
 
 suite('Arithmetic Coder', () => {
   suite('Min/Max', () => {

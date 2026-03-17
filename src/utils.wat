@@ -12,6 +12,39 @@
   (func $ilog64_4 (import "test" "log64_4") (param i64 i64 i64 i64))
   (func $ilog64_5 (import "test" "log64_5") (param i64 i64 i64 i64 i64))
   (func $ilog64_6 (import "test" "log64_6") (param i64 i64 i64 i64 i64 i64))
+
+  (func $random32 (import "test" "random32") (result i32))
+  (func $nanonow (import "test" "nanonow") (result i64))
+
+  (memory $benchmark_data 64)
+
+  (func $benchmark_reverse32 (export "_benchmark_reverse32")
+    (param $trials i32) (result i64)
+    (local $i i32)
+    (local $start i64)
+    (local.set $i
+      (i32.shl (i32.sub (local.get $trials) (i32.const 1)) (i32.const 2))
+    )
+    ;; load benchmark_data with random values
+    (loop $load_data
+      (i32.store $benchmark_data (local.get $i) (call $random32))
+      (br_if $load_data (local.tee $i (i32.sub (local.get $i) (i32.const 4))))
+    )
+
+    (local.set $i
+      (i32.shl (i32.sub (local.get $trials) (i32.const 1)) (i32.const 2))
+    )
+    (local.set $start (call $nanonow))
+    (loop $reverse
+      (i32.store $benchmark_data
+        (local.get $i)
+        (call $reverse32 (i32.load $benchmark_data (local.get $i)))
+      )
+      (br_if $reverse (local.tee $i (i32.sub (local.get $i) (i32.const 4))))
+    )
+
+    (i64.sub (call $nanonow) (local.get $start))
+  )
   ;; DEBUG_END
 
   (func $min32 (export "_min32") (param i32 i32) (result i32)
@@ -33,6 +66,149 @@
   )
   (func $not64 (export "_not64") (param i64) (result i64)
     (i64.xor (local.get 0) (i64.const -1))
+  )
+
+  (func $reverse_i8 (param i64) (result i64)
+    ;; see https://graphics.stanford.edu/~seander/bithacks.html#ReverseByteWith64Bits
+    ;;b = ((b * 0x80200802) & 0x0884422110) * 0x0101010101 >> 32;
+    (i64.and
+      (i64.shr_u
+        (i64.mul
+          (i64.and
+            (i64.mul (local.get 0) (i64.const 0x80200802))
+            (i64.const 0x0884422110)
+          )
+          (i64.const 0x0101010101)
+        )
+        (i64.const 32)
+      )
+      (i64.const 0xff)
+    )
+  )
+
+  (func $reverse32 (export "_reverse32") (param i32) (result i32)
+    ;; Shockingly, this is faster than the v128 version below
+    (i32.shl
+      (i32.wrap_i64
+        (call $reverse_i8
+          (i64.extend_i32_u (i32.and (local.get 0) (i32.const 0xff)))
+        )
+      )
+      (i32.const 24)
+    )
+    (i32.shl
+      (i32.wrap_i64
+        (call $reverse_i8
+          (i64.extend_i32_u
+            (i32.and (i32.shr_u (local.get 0) (i32.const 8)) (i32.const 0xff))
+          )
+        )
+      )
+      (i32.const 16)
+    )
+    (i32.shl
+      (i32.wrap_i64
+        (call $reverse_i8
+          (i64.extend_i32_u
+            (i32.and (i32.shr_u (local.get 0) (i32.const 16)) (i32.const 0xff))
+          )
+        )
+      )
+      (i32.const 8)
+    )
+    (i32.wrap_i64
+      (call $reverse_i8
+        (i64.extend_i32_u
+          (i32.and (i32.shr_u (local.get 0) (i32.const 24)) (i32.const 0xff))
+        )
+      )
+    )
+    i32.or
+    i32.or
+    i32.or
+  )
+  ;; (func $reverse32 (export "_reverse32") (param i32) (result i32)
+  ;;   ;; apply the following technique in parallel:
+  ;;   ;; https://graphics.stanford.edu/~seander/bithacks.html#ReverseByteWith32Bits
+  ;;   (local $v v128)
+  ;;   (local.set $v
+  ;;     (i8x16.shuffle 0 9 10 11 1 13 14 15 2 9 10 11 3 13 14 15
+  ;;       (i32x4.replace_lane 0 (v128.const i64x2 0 0) (local.get 0))
+  ;;       (local.get $v)
+  ;;     )
+  ;;   )
+
+  ;;   (i32x4.extract_lane 0
+  ;;     (i8x16.shuffle 14 10 6 2 4 5 6 7 8 9 10 11 12 13 14 15
+  ;;       (i32x4.mul
+  ;;         (v128.or
+  ;;           (v128.and
+  ;;             (i32x4.mul (local.get $v) (i32x4.splat (i32.const 0x0802)))
+  ;;             (i32x4.splat (i32.const 0x22110))
+  ;;           )
+  ;;           (v128.and
+  ;;             (i32x4.mul (local.get $v) (i32x4.splat (i32.const 0x08020)))
+  ;;             (i32x4.splat (i32.const 0x88440))
+  ;;           )
+  ;;         )
+  ;;         (i32x4.splat (i32.const 0x10101))
+  ;;       )
+  ;;       (local.get $v)
+  ;;     )
+  ;;   )
+  ;; )
+
+  (func $reverse64 (export "_reverse64") (param i64) (result i64)
+    (local $v1 v128)
+    (local $v2 v128)
+
+    (local.set $v1
+      (i8x16.shuffle 0 9 10 11 1 13 14 15 2 9 10 11 3 13 14 15
+      ;; (i8x16.swizzle
+        (i64x2.replace_lane 0 (v128.const i64x2 0 0) (local.get 0))
+        (local.get $v1)
+        ;; (v128.const i8x16 0 9 10 11 1 13 14 15 2 9 10 11 3 13 14 15)
+      )
+    )
+    (local.set $v2
+      (i8x16.shuffle 4 9 10 11 5 13 14 15 6 9 10 11 7 13 14 15
+      ;; (i8x16.swizzle
+        (i64x2.replace_lane 0 (v128.const i64x2 0 0) (local.get 0))
+        (local.get $v2)
+        ;; (v128.const i8x16 4 9 10 11 5 13 14 15 6 9 10 11 7 13 14 15)
+      )
+    )
+
+    (i64x2.extract_lane 0
+      (i8x16.shuffle 30 26 22 18 14 10 6 2 8 9 10 11 12 13 14 15
+        (i32x4.mul
+          (v128.or
+            (v128.and
+              (i32x4.mul (local.get $v1) (i32x4.splat (i32.const 0x0802)))
+              (i32x4.splat (i32.const 0x22110))
+            )
+            (v128.and
+              (i32x4.mul (local.get $v1) (i32x4.splat (i32.const 0x08020)))
+              (i32x4.splat (i32.const 0x88440))
+            )
+          )
+          (i32x4.splat (i32.const 0x10101))
+        )
+        (i32x4.mul
+          (v128.or
+            (v128.and
+              (i32x4.mul (local.get $v2) (i32x4.splat (i32.const 0x0802)))
+              (i32x4.splat (i32.const 0x22110))
+            )
+            (v128.and
+              (i32x4.mul (local.get $v2) (i32x4.splat (i32.const 0x08020)))
+              (i32x4.splat (i32.const 0x88440))
+            )
+          )
+          (i32x4.splat (i32.const 0x10101))
+        )
+      )
+    )
   )
 
   (func $make32x4 (export "_make32x4") (param i32 i32 i32 i32) (result v128)
@@ -184,85 +360,6 @@
       (i64.trunc_sat_f64_u (f64.mul (local.get $p) (f64.const 0x100000000)))
     )
   )
-
-  (func $reverse32 (export "_reverse32") (param i32) (result i32)
-    (local $v v128)
-    (local.set $v
-      (i8x16.shuffle 0 9 10 11 1 13 14 15 2 9 10 11 3 13 14 15
-        (i32x4.replace_lane 0 (v128.const i64x2 0 0) (local.get 0))
-        (local.get $v)
-      )
-    )
-
-    (i32x4.extract_lane 0
-      (i8x16.shuffle 14 10 6 2 4 5 6 7 8 9 10 11 12 13 14 15
-        (i32x4.mul
-          (v128.or
-            (v128.and
-              (i32x4.mul (local.get $v) (i32x4.splat (i32.const 0x0802)))
-              (i32x4.splat (i32.const 0x22110))
-            )
-            (v128.and
-              (i32x4.mul (local.get $v) (i32x4.splat (i32.const 0x08020)))
-              (i32x4.splat (i32.const 0x88440))
-            )
-          )
-          (i32x4.splat (i32.const 0x10101))
-        )
-        (local.get $v)
-      )
-    )
-  )
-
-  (func $reverse64 (export "_reverse64") (param i64) (result i64)
-    (local $v1 v128)
-    (local $v2 v128)
-
-    (local.set $v1
-      (i8x16.shuffle 0 9 10 11 1 13 14 15 2 9 10 11 3 13 14 15
-        (i64x2.replace_lane 0 (v128.const i64x2 0 0) (local.get 0))
-        (local.get $v1)
-      )
-    )
-    (local.set $v2
-      (i8x16.shuffle 4 9 10 11 5 13 14 15 6 9 10 11 7 13 14 15
-        (i64x2.replace_lane 0 (v128.const i64x2 0 0) (local.get 0))
-        (local.get $v2)
-      )
-    )
-
-    (i64x2.extract_lane 0
-      (i8x16.shuffle 30 26 22 18 14 10 6 2 8 9 10 11 12 13 14 15
-        (i32x4.mul
-          (v128.or
-            (v128.and
-              (i32x4.mul (local.get $v1) (i32x4.splat (i32.const 0x0802)))
-              (i32x4.splat (i32.const 0x22110))
-            )
-            (v128.and
-              (i32x4.mul (local.get $v1) (i32x4.splat (i32.const 0x08020)))
-              (i32x4.splat (i32.const 0x88440))
-            )
-          )
-          (i32x4.splat (i32.const 0x10101))
-        )
-        (i32x4.mul
-          (v128.or
-            (v128.and
-              (i32x4.mul (local.get $v2) (i32x4.splat (i32.const 0x0802)))
-              (i32x4.splat (i32.const 0x22110))
-            )
-            (v128.and
-              (i32x4.mul (local.get $v2) (i32x4.splat (i32.const 0x08020)))
-              (i32x4.splat (i32.const 0x88440))
-            )
-          )
-          (i32x4.splat (i32.const 0x10101))
-        )
-      )
-    )
-  )
-
 
   ;; DEBUG_START
   (func $log1 (export "_log1") (param i32)
