@@ -47,8 +47,8 @@
   "scripts": {
     "build": "tsc && (for i in ./src/*.wat; do file=\"$(basename $i .wat)\"; npx -p wabt wat2wasm src/$file.wat -o lib/$file.wasm; done)",
     "ibuild": "find ./src | entr -s 'npm run build'",
-    "test": "npx tsx --test",
-    "itest": "find ./tests ./lib | entr -s 'npm run test -- --test-reporter dot'",
+    "test": "tsx --test",
+    "itest": "find ./tests ./lib | entr -s 'tsx --test --test-reporter dot'",
     "clean": "rm -rf ./lib/*",
     "prettier-format": "prettier --config .prettierrc '**/*.ts' '**/*.html' '**/*.css' --write",
     "dist": "./dist.sh"

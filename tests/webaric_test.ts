@@ -6,38 +6,76 @@ let utils: Record<string, Function>;
 let webaric: Record<string, Function>;
 let enableLogging = false;
 
-function logNumbers(...values: number[]) {
+function logi32arr(...values: number[]) {
   if (enableLogging) {
     console.log(
       'Log: ' + (values[0]?.toString(16).toUpperCase() ?? ''),
-      values.slice(1).map((v, i) => (v >>> 0).toString(2).padStart(32, '0')),
+      values.slice(1).map(log32),
     );
   }
 }
 
-function logBigInts(...values: bigint[]) {
+function logi64arr(...values: bigint[]) {
   if (enableLogging) {
     console.log(
       'Log: ' + (values[0]?.toString(16).toUpperCase() ?? ''),
-      values.slice(1).map((v, i) => (v >> 0n).toString(2).padStart(32, '0')),
+      values.slice(1).map(log64),
     );
   }
+}
+
+function log32(val: number) {
+  function bytebits(val: number) {
+    return (val & 0xff).toString(2).padStart(8, '0');
+  }
+  return (
+    bytebits(val >> 24) +
+    ':' +
+    bytebits(val >> 16) +
+    ' ' +
+    bytebits(val >> 8) +
+    ':' +
+    bytebits(val)
+  );
+}
+
+function log64(val: bigint) {
+  function bytebits(val: bigint) {
+    return (val & 0xffn).toString(2).padStart(8, '0');
+  }
+  return (
+    bytebits(val >> 56n) +
+    ':' +
+    bytebits(val >> 48n) +
+    ' ' +
+    bytebits(val >> 40n) +
+    ':' +
+    bytebits(val >> 32n) +
+    ' ' +
+    bytebits(val >> 24n) +
+    ':' +
+    bytebits(val >> 16n) +
+    ' ' +
+    bytebits(val >> 8n) +
+    ':' +
+    bytebits(val)
+  );
 }
 
 before(async () => {
   const test = {
-    log1: logNumbers,
-    log2: logNumbers,
-    log3: logNumbers,
-    log4: logNumbers,
-    log5: logNumbers,
-    log6: logNumbers,
-    log64_1: logBigInts,
-    log64_2: logBigInts,
-    log64_3: logBigInts,
-    log64_4: logBigInts,
-    log64_5: logBigInts,
-    log64_6: logBigInts,
+    log1: logi32arr,
+    log2: logi32arr,
+    log3: logi32arr,
+    log4: logi32arr,
+    log5: logi32arr,
+    log6: logi32arr,
+    log64_1: logi64arr,
+    log64_2: logi64arr,
+    log64_3: logi64arr,
+    log64_4: logi64arr,
+    log64_5: logi64arr,
+    log64_6: logi64arr,
   };
   utils = await loadWasm(await readFile('./lib/utils.wasm'), {test});
   webaric = await loadWasm(await readFile('./lib/webaric.wasm'), {
@@ -106,6 +144,39 @@ suite('Arithmetic Coder', () => {
           0xc335a9d0n,
         );
       });
+    });
+  });
+  suite('Reverse', () => {
+    test('reverses 32 bits', () => {
+      // symmetric: 0, 6, 9, f
+      // pairs: 1/8, 2/4, 3/c, 5/a, 7/e, b/d
+      assert.equal(utils._reverse32(0x12345678), 0x1e6a2c48 | 0);
+      assert.equal(utils._reverse32(0xdf21bb87), 0xe1dd84fb | 0);
+      assert.equal(utils._reverse32(0xbf4e2f23), 0xc4f472fd | 0);
+      assert.equal(utils._reverse32(0x91b1217a), 0x5e848d89 | 0);
+      assert.equal(utils._reverse32(0x67efc8e8), 0x1713f7e6 | 0);
+      assert.equal(utils._reverse32(0x93232aa3), 0xc554c4c9 | 0);
+      assert.equal(utils._reverse32(0x1343a142), 0x4285c2c8 | 0);
+    });
+    test('reverses 64 bits', () => {
+      // handle signed by &ing
+      function as64(v: bigint): bigint {
+        return v & 0xffffffffffffffffn;
+      }
+      // symmetric: 0, 6, 9, f
+      // pairs: 1/8, 2/4, 3/c, 5/a, 7/e, b/d
+      assert.equal(
+        as64(utils._reverse64(0x12345678df21bb87n)),
+        0xe1dd84fb1e6a2c48n,
+      );
+      assert.equal(
+        as64(utils._reverse64(0xbf4e2f2391b1217an)),
+        0x5e848d89c4f472fdn,
+      );
+      assert.equal(
+        as64(utils._reverse64(0x67efc8e893232aa3n)),
+        0xc554c4c91713f7e6n,
+      );
     });
   });
   suite('Encoding Zooms', () => {

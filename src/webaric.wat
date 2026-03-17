@@ -3,8 +3,8 @@
   (func $min32 (import "utils" "_min32") (param i32 i32) (result i32))
   (func $not32 (import "utils" "_not32") (param i32) (result i32))
   (func $not64 (import "utils" "_not64") (param i64) (result i64))
-  (func $make2x32 (import "utils" "_make2x32") (param i32 i32) (result v128))
-  (func $get2x32 (import "utils" "_get2x32") (param v128) (result i32 i32))
+  (func $make32x2 (import "utils" "_make32x2") (param i32 i32) (result v128))
+  (func $get32x2 (import "utils" "_get32x2") (param v128) (result i32 i32))
   (func $log1 (import "utils" "_log1") (param i32))
   (func $log2 (import "utils" "_log2") (param i32 i32) (result i32))
   (func $log3 (import "utils" "_log3") (param i32 i32 i32) (result i32 i32))
@@ -438,9 +438,9 @@
         )
 
         ;; apply the zoom levels
-        (call $get2x32
+        (call $get32x2
           (call $apply_zoom
-            (call $make2x32 (local.get $low) (local.get $high))
+            (call $make32x2 (local.get $low) (local.get $high))
             (local.get $outer_zooms)
             (local.get $mid_zooms)
           )
@@ -475,9 +475,9 @@
                 (local.set $dangling_idx (i64.const 63))
               )
             )
-            (call $get2x32
+            (call $get32x2
               (call $apply_zoom
-                (call $make2x32 (local.get $low) (local.get $high))
+                (call $make32x2 (local.get $low) (local.get $high))
                 (local.get $outer_zooms)
                 (local.get $mid_zooms)
               )

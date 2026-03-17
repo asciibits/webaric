@@ -6,12 +6,12 @@
   (func $ilog4 (import "test" "log4") (param i32 i32 i32 i32))
   (func $ilog5 (import "test" "log5") (param i32 i32 i32 i32 i32))
   (func $ilog6 (import "test" "log6") (param i32 i32 i32 i32 i32 i32))
-  (func $ilog64_1 (import "test" "log64_1") (param i32))
-  (func $ilog64_2 (import "test" "log64_2") (param i32 i32))
-  (func $ilog64_3 (import "test" "log64_3") (param i32 i32 i32))
-  (func $ilog64_4 (import "test" "log64_4") (param i32 i32 i32 i32))
-  (func $ilog64_5 (import "test" "log64_5") (param i32 i32 i32 i32 i32))
-  (func $ilog64_6 (import "test" "log64_6") (param i32 i32 i32 i32 i32 i32))
+  (func $ilog64_1 (import "test" "log64_1") (param i64))
+  (func $ilog64_2 (import "test" "log64_2") (param i64 i64))
+  (func $ilog64_3 (import "test" "log64_3") (param i64 i64 i64))
+  (func $ilog64_4 (import "test" "log64_4") (param i64 i64 i64 i64))
+  (func $ilog64_5 (import "test" "log64_5") (param i64 i64 i64 i64 i64))
+  (func $ilog64_6 (import "test" "log64_6") (param i64 i64 i64 i64 i64 i64))
   ;; DEBUG_END
 
   (func $min32 (export "_min32") (param i32 i32) (result i32)
@@ -35,7 +35,7 @@
     (i64.xor (local.get 0) (i64.const -1))
   )
 
-  (func $make4x32 (export "_make4x32") (param i32 i32 i32 i32) (result v128)
+  (func $make32x4 (export "_make32x4") (param i32 i32 i32 i32) (result v128)
     (v128.const i64x2 0 0)
     (i32x4.replace_lane 0 (local.get 0))
     (i32x4.replace_lane 1 (local.get 1))
@@ -43,20 +43,20 @@
     (i32x4.replace_lane 3 (local.get 3))
   )
 
-  (func $make2x32 (export "_make2x32") (param i32 i32) (result v128)
+  (func $make32x2 (export "_make32x2") (param i32 i32) (result v128)
     (v128.const i64x2 0 0)
     (i32x4.replace_lane 0 (local.get 0))
     (i32x4.replace_lane 1 (local.get 1))
   )
 
-  (func $get4x32 (export "_get4x32") (param v128) (result i32 i32 i32 i32)
+  (func $get32x4 (export "_get32x4") (param v128) (result i32 i32 i32 i32)
     (i32x4.extract_lane 0 (local.get 0))
     (i32x4.extract_lane 1 (local.get 0))
     (i32x4.extract_lane 2 (local.get 0))
     (i32x4.extract_lane 3 (local.get 0))
   )
 
-  (func $get2x32 (export "_get2x32") (param v128) (result i32 i32)
+  (func $get32x2 (export "_get32x2") (param v128) (result i32 i32)
     (i32x4.extract_lane 0 (local.get 0))
     (i32x4.extract_lane 1 (local.get 0))
   )
@@ -185,6 +185,86 @@
     )
   )
 
+  (func $reverse32 (export "_reverse32") (param i32) (result i32)
+    (local $v v128)
+    (local.get $v)
+    (i8x16.replace_lane 0 (local.get 0))
+    (i8x16.replace_lane 4 (i32.shr_u (local.get 0) (i32.const 8)))
+    (i8x16.replace_lane 8 (i32.shr_u (local.get 0) (i32.const 16)))
+    (i8x16.replace_lane 12 (i32.shr_u (local.get 0) (i32.const 24)))
+    (local.set $v)
+
+    (i32x4.extract_lane 0
+      (i8x16.shuffle 14 10 6 2 4 5 6 7 8 9 10 11 12 13 14 15
+        (i32x4.mul
+          (v128.or
+            (v128.and
+              (i32x4.mul (local.get $v) (i32x4.splat (i32.const 0x0802)))
+              (i32x4.splat (i32.const 0x22110))
+            )
+            (v128.and
+              (i32x4.mul (local.get $v) (i32x4.splat (i32.const 0x08020)))
+              (i32x4.splat (i32.const 0x88440))
+            )
+          )
+          (i32x4.splat (i32.const 0x10101))
+        )
+        (local.get $v)
+      )
+    )
+  )
+
+  (func $reverse64 (export "_reverse64") (param i64) (result i64)
+    (local $v1 v128)
+    (local $v2 v128)
+    (local $b i32)
+    (local.get $v1)
+    (i8x16.replace_lane 0 (local.tee $b (i32.wrap_i64 (local.get 0))))
+    (i8x16.replace_lane 4 (i32.shr_u (local.get $b) (i32.const 8)))
+    (i8x16.replace_lane 8 (i32.shr_u (local.get $b) (i32.const 16)))
+    (i8x16.replace_lane 12 (i32.shr_u (local.get $b) (i32.const 24)))
+    (local.set $v1)
+    (local.get $v2)
+    (i8x16.replace_lane 0
+      (local.tee $b (i32.wrap_i64 (i64.shr_u (local.get 0) (i64.const 32))))
+    )
+    (i8x16.replace_lane 4 (i32.shr_u (local.get $b) (i32.const 8)))
+    (i8x16.replace_lane 8 (i32.shr_u (local.get $b) (i32.const 16)))
+    (i8x16.replace_lane 12 (i32.shr_u (local.get $b) (i32.const 24)))
+    (local.set $v2)
+
+    (i64x2.extract_lane 0
+      (i8x16.shuffle 30 26 22 18 14 10 6 2 8 9 10 11 12 13 14 15
+        (i32x4.mul
+          (v128.or
+            (v128.and
+              (i32x4.mul (local.get $v1) (i32x4.splat (i32.const 0x0802)))
+              (i32x4.splat (i32.const 0x22110))
+            )
+            (v128.and
+              (i32x4.mul (local.get $v1) (i32x4.splat (i32.const 0x08020)))
+              (i32x4.splat (i32.const 0x88440))
+            )
+          )
+          (i32x4.splat (i32.const 0x10101))
+        )
+        (i32x4.mul
+          (v128.or
+            (v128.and
+              (i32x4.mul (local.get $v2) (i32x4.splat (i32.const 0x0802)))
+              (i32x4.splat (i32.const 0x22110))
+            )
+            (v128.and
+              (i32x4.mul (local.get $v2) (i32x4.splat (i32.const 0x08020)))
+              (i32x4.splat (i32.const 0x88440))
+            )
+          )
+          (i32x4.splat (i32.const 0x10101))
+        )
+      )
+    )
+  )
+
 
   ;; DEBUG_START
   (func $log1 (export "_log1") (param i32)
@@ -201,6 +281,35 @@
   )
   (func $log4 (export "_log4") (param i32 i32 i32 i32) (result i32 i32 i32)
     (call $ilog4 (local.get 3) (local.get 0) (local.get 1) (local.get 2))
+    local.get 0
+    local.get 1
+    local.get 2
+  )
+  (func $ilog128 (export "_ilog128") (param i64) (param v128)
+    (call $ilog64_3
+      (local.get 0)
+      (i64x2.extract_lane 0 (local.get 1))
+      (i64x2.extract_lane 1 (local.get 1))
+    )
+  )
+  (func $log128 (export "_log128") (param v128 i64) (result v128)
+    (call $ilog128 (local.get 1) (local.get 0))
+    local.get 0
+  )
+  (func $log64_1 (export "_log64_1") (param i64)
+    (call $ilog64_1 (local.get 0))
+  )
+  (func $log64_2 (export "_log64_2") (param i64 i64) (result i64)
+    (call $ilog64_2 (local.get 1) (local.get 0))
+    local.get 0
+  )
+  (func $log64_3 (export "_log64_3") (param i64 i64 i64) (result i64 i64)
+    (call $ilog64_3 (local.get 2) (local.get 0) (local.get 1))
+    local.get 0
+    local.get 1
+  )
+  (func $log64_4 (export "_log64_4") (param i64 i64 i64 i64) (result i64 i64 i64)
+    (call $ilog64_4 (local.get 3) (local.get 0) (local.get 1) (local.get 2))
     local.get 0
     local.get 1
     local.get 2
