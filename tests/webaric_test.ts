@@ -99,7 +99,7 @@ beforeEach(() => {
 //   console.log("Benchmark time: " + Number(nanos) / 100000000);
 // })
 
-suite('Arithmetic Coder', () => {
+suite('Utils', () => {
   suite('Min/Max', () => {
     test('handles simple min', () => {
       assert.equal(utils._min32(0, 0), 0);
@@ -190,6 +190,8 @@ suite('Arithmetic Coder', () => {
       );
     });
   });
+});
+suite('Arithmetic Coder', () => {
   suite('Encoding Zooms', () => {
     test('no zoom low', () => {
       const [outerZooms, midZooms] = webaric._zoom(0x3fffffff, 0x80000000);
@@ -235,6 +237,11 @@ suite('Arithmetic Coder', () => {
       const [outerZooms, midZooms] = webaric._zoom(0x7fffffff, 0x80000000);
       assert.equal(outerZooms, 0);
       assert.equal(midZooms, 31);
+    });
+    test('identical zoom', () => {
+      const [outerZooms, midZooms] = webaric._zoom(0xdeadbeef, 0xdeadbeef);
+      assert.equal(outerZooms, 32);
+      assert.equal(midZooms, 0);
     });
     test('many zooms arbitrary', () => {
       const [outerZooms, midZooms] = webaric._zoom(

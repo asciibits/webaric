@@ -1,162 +1,118 @@
 (module
-  ;; DEBUG_START
-  (func $log1 (import "test" "log1") (param i32))
-  (func $log2 (import "test" "log2") (param i32 i32))
-  (func $log3 (import "test" "log3") (param i32 i32 i32))
-  (func $log4 (import "test" "log4") (param i32 i32 i32 i32))
-  (func $log5 (import "test" "log5") (param i32 i32 i32 i32 i32))
-  (func $log6 (import "test" "log6") (param i32 i32 i32 i32 i32 i32))
-  (func $log64_1 (import "test" "log64_1") (param i32))
-  (func $log64_2 (import "test" "log64_2") (param i32 i32))
-  (func $log64_3 (import "test" "log64_3") (param i32 i32 i32))
-  (func $log64_4 (import "test" "log64_4") (param i32 i32 i32 i32))
-  (func $log64_5 (import "test" "log64_5") (param i32 i32 i32 i32 i32))
-  (func $log64_6 (import "test" "log64_6") (param i32 i32 i32 i32 i32 i32))
-  ;; DEBUG_END
-
   ;; IMPORT(utils.wat)
-  (func $min32 (import "utils" "_min32") (param i32 i32) (result i32))
   (func $not32 (import "utils" "_not32") (param i32) (result i32))
-  (func $make2x32 (import "utils" "_make2x32") (param i32 i32) (result v128))
-  (func $get2x32 (import "utils" "_get2x32") (param v128) (result i32 i32))
   ;; IMPORT_END
 
-  ;; Encode a single bit, with its associated $mid position; that is, the
-  ;; position between $low and $high that represents a low and high zoom
-  ;; respectively.
+  ;; Encode a range. This is the fundamental unit of work for the arithmetic
+  ;; encoding.
   ;;
   ;; This works exactly like the standard (i.e."not fast") version except for
   ;; 1 big difference: This version never does mid zooms. Instead, it lets
   ;; the window size shrink all the way down to 1 if necessary to land in a
   ;; position where an outer zoom can be done. This removes a lot of corner
   ;; case handling, but it does negatively affect the compression. Values TBD.
-  ;;
-  ;; Note the invariant:
-  ;;   0 <= $low < $mid <= $high < 2^32
-  ;;
-  ;; Input parameters:
-  ;; i32 $mid : A value between $low (exclusive) and $high (inclusive). A value
-  ;;            closer to $high represents a high probability of a 1 bit, and
-  ;;            vice versa.
-  ;; i32 $bit : The bit to encode
-  ;;
-  ;; State results (see State parameters):
-  ;;    $low, $high, $scratch, $scratch_idx, $dangling_idx
-  ;;
-  ;; Output results:
-  ;; i32 $has_results: 1 if $result has data, 0 otherwise
-  ;; i32 $result     : 32 bits of output data, if $result_count == 1
   (func $encode_bit_fast (export "_encode_bit_fast")
+    ;; State Parameters (initialized to 0 for 1st call, copied from previous call
+    ;; for subsequent calls)
     ;;
-    ;; State values
+    ;; Workspace
+    (param $scratch i32)
+    ;; 0 <= scratch_idx < 32
+    (param $scratch_idx i32)
+
+    ;; Params
+    ;;
+    ;; Note the input requirements:
+    ;;   following a normal zoom: 0 <= $low <= $high < 2^32
+    ;;   following a mid-zoom:    0 <= $high < 2^31 <= $low < 2^32
     ;;
     ;; The lower bound (inclusive)
     (param $low i32)
     ;; The upper bound (inclusive)
     (param $high i32)
-    ;; Workspace
-    (param $scratch i32)
-    ;; 0 <= scratch_idx < 32
-    (param $scratch_idx i32)
-    ;; A value between $low and $high - the new boundary based on $bit
-    (param $mid i32)
-    ;; the value to encode
-    (param $bit i32)
 
-    ;; the new low after all the zooms
-    (result i32)
-    ;; tyhe new high after all the zooms
-    (result i32)
+    ;; State Results
+    ;;
     ;; scratch
     (result i32)
     ;; scratch_idx
     (result i32)
-    ;; has_result - 1 if $result has data, 0 otherwise
+
+    ;; Output results:
+    ;;
+    ;; the new low after all the zooms
     (result i32)
-    ;; result: set if has_result > 0
+    ;; tyhe new high after all the zooms
+    (result i32)
+    ;; result_count. Either 0 or 1
+    (result i32)
+    ;; result: set if result_count > 0
     (result i32)
 
-    (local $outer_zooms i32)
-    (local $has_result i32)
-    (local $result i32)
+    (local $zooms i32)
 
-    ;; process the bit and reset the range
-    (local.tee $low
-      (select (local.get $low) (local.get $mid) (local.get $bit))
-    )
-    (local.tee $high
-      (select (local.get $mid) (local.get $high) (local.get $bit))
-    )
-    i32.xor
-    i32.clz
-    local.tee $outer_zooms
-
-    (if (result i32 i32)
+    (if (result i32 i32 i32 i32 i32 i32)
+      (local.tee $zooms (i32.clz (i32.xor (local.get $low) (local.get $high))))
       (then
-        ;; we have an outer zoom
+        ;; we have zooms
 
-        ;; set the outer-zooms
+        ;; set scratch with new data
         (local.set $scratch
           (i32.or
             (local.get $scratch)
             (i32.shr_u
-              (local.get $low)
+              (i32.and
+                (local.get $low)
+                (call $not32 (i32.shr_u (i32.const -1) (local.get $zooms)))
+              )
               (local.get $scratch_idx)
             )
           )
         )
 
         (local.tee $scratch_idx
-          (i32.add
-            (local.get $scratch_idx)
-            (local.get $outer_zooms)
-          )
+          (i32.add (local.get $scratch_idx) (local.get $zooms))
         )
 
         i32.const 32
         i32.ge_u
-        (if
+        (if (result i32 i32)
           (then
-            ;; Leave this branch - it is predictably unlikely
-            (local.set $result (local.get $scratch))
-            (local.set $has_result (i32.const 1))
-            (local.set $scratch_idx
-              (i32.and (local.get $scratch_idx) (i32.const 0x1f))
-            )
-            (local.set $scratch
-              (i32.shl
-                (local.get $low)
-                (i32.sub (local.get $outer_zooms) (local.get $scratch_idx))
+            ;; spilled over the 32 bit boundary - need to grab the missing
+            ;; bits of $low
+            (i32.shl
+              (i32.shr_u
+                (i32.and
+                  (local.get $low)
+                  (call $not32 (i32.shr_u (i32.const -1) (local.get $zooms)))
+                )
+                (local.get $scratch_idx)
               )
+              (local.get $zooms)
             )
+            (i32.and (local.get $scratch_idx) (i32.const 0x1f))
           )
-        )
-        ;; mask off the parts of $low that got written to $scratch
-        (local.set $scratch
-          (i32.and
+          (else
             (local.get $scratch)
-            (call $not32 (i32.shr_u (i32.const -1) (local.get $scratch_idx)))
+            (local.get $scratch_idx)
           )
         )
 
         ;; apply the zoom levels
-        (i32.shl (local.get $low) (local.get $outer_zooms))
-        (i32.shl (local.get $high) (local.get $outer_zooms))
+        (i32.shl (local.get $low) (local.get $zooms))
+        (i32.shl (local.get $high) (local.get $zooms))
+        (local.get $scratch)
+        (i32.shr_u (local.get $scratch_idx) (i32.const 5))
       )
       (else
-        ;; no zooming - just dump the current low/high
+        ;; nothing to do
+        (local.get $scratch)
+        (local.get $scratch_idx)
         (local.get $low)
         (local.get $high)
+        (i32.const 0)
+        (i32.const 0)
       )
     )
-
-    ;; state
-    ;; low/high from the giant if block above
-    (local.get $scratch)
-    (local.get $scratch_idx)
-
-    ;; actual results
-    (local.get $has_result)
-    (local.get $result)
   )
 )
