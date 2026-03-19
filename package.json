@@ -1,5 +1,5 @@
 {
-  "name": "webaric",
+  "name": "wasmcomp",
   "version": "1.0.0",
   "description": "Small, fast Arithmetic Coding compression module",
   "keywords": [
@@ -9,13 +9,13 @@
     "Coding",
     "compression"
   ],
-  "homepage": "https://github.com/asciibits/webaric#readme",
+  "homepage": "https://github.com/asciibits/wasmcomp#readme",
   "bugs": {
-    "url": "https://github.com/asciibits/webaric/issues"
+    "url": "https://github.com/asciibits/wasmcomp/issues"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/asciibits/webaric.git"
+    "url": "git+https://github.com/asciibits/wasmcomp.git"
   },
   "license": "MIT",
   "devDependencies": {

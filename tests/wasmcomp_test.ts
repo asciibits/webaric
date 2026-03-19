@@ -3,7 +3,7 @@ import {suite, test, before, beforeEach} from 'node:test';
 import {strict as assert} from 'node:assert/strict';
 
 let utils: Record<string, Function>;
-let webaric: Record<string, Function>;
+let wasmcomp: Record<string, Function>;
 let enableLogging = false;
 
 function logi32arr(...values: number[]) {
@@ -80,7 +80,7 @@ before(async () => {
     nanonow: process.hrtime.bigint,
   };
   utils = await loadWasm(await readFile('./lib/utils.wasm'), {test});
-  webaric = await loadWasm(await readFile('./lib/webaric.wasm'), {
+  wasmcomp = await loadWasm(await readFile('./lib/wasmcomp.wasm'), {
     test,
     utils,
   });
@@ -194,57 +194,57 @@ suite('Utils', () => {
 suite('Arithmetic Coder', () => {
   suite('Encoding Zooms', () => {
     test('no zoom low', () => {
-      const [outerZooms, midZooms] = webaric._zoom(0x3fffffff, 0x80000000);
+      const [outerZooms, midZooms] = wasmcomp._zoom(0x3fffffff, 0x80000000);
       assert.equal(outerZooms, 0);
       assert.equal(midZooms, 0);
     });
     test('single zoom low', () => {
-      const [outerZooms, midZooms] = webaric._zoom(0x3fffffff, 0x7fffffff);
+      const [outerZooms, midZooms] = wasmcomp._zoom(0x3fffffff, 0x7fffffff);
       assert.equal(outerZooms, 1);
       assert.equal(midZooms, 0);
     });
     test('single zoom mid (lower)', () => {
-      const [outerZooms, midZooms] = webaric._zoom(0x40000000, 0x80000000);
+      const [outerZooms, midZooms] = wasmcomp._zoom(0x40000000, 0x80000000);
       assert.equal(outerZooms, 0);
       assert.equal(midZooms, 1);
     });
     test('no zoom high', () => {
-      const [outerZooms, midZooms] = webaric._zoom(0x7fffffff, 0xc0000000);
+      const [outerZooms, midZooms] = wasmcomp._zoom(0x7fffffff, 0xc0000000);
       assert.equal(outerZooms, 0);
       assert.equal(midZooms, 0);
     });
     test('single zoom high', () => {
-      const [outerZooms, midZooms] = webaric._zoom(0x80000000, 0xc0000000);
+      const [outerZooms, midZooms] = wasmcomp._zoom(0x80000000, 0xc0000000);
       assert.equal(outerZooms, 1);
       assert.equal(midZooms, 0);
     });
     test('single zoom mid (higher)', () => {
-      const [outerZooms, midZooms] = webaric._zoom(0x7fffffff, 0xbfffffff);
+      const [outerZooms, midZooms] = wasmcomp._zoom(0x7fffffff, 0xbfffffff);
       assert.equal(outerZooms, 0);
       assert.equal(midZooms, 1);
     });
     test('max zooms low', () => {
-      const [outerZooms, midZooms] = webaric._zoom(0, 1);
+      const [outerZooms, midZooms] = wasmcomp._zoom(0, 1);
       assert.equal(outerZooms, 31);
       assert.equal(midZooms, 0);
     });
     test('max zooms high', () => {
-      const [outerZooms, midZooms] = webaric._zoom(0xfffffffe, 0xffffffff);
+      const [outerZooms, midZooms] = wasmcomp._zoom(0xfffffffe, 0xffffffff);
       assert.equal(outerZooms, 31);
       assert.equal(midZooms, 0);
     });
     test('max zooms mid', () => {
-      const [outerZooms, midZooms] = webaric._zoom(0x7fffffff, 0x80000000);
+      const [outerZooms, midZooms] = wasmcomp._zoom(0x7fffffff, 0x80000000);
       assert.equal(outerZooms, 0);
       assert.equal(midZooms, 31);
     });
     test('identical zoom', () => {
-      const [outerZooms, midZooms] = webaric._zoom(0xdeadbeef, 0xdeadbeef);
+      const [outerZooms, midZooms] = wasmcomp._zoom(0xdeadbeef, 0xdeadbeef);
       assert.equal(outerZooms, 32);
       assert.equal(midZooms, 0);
     });
     test('many zooms arbitrary', () => {
-      const [outerZooms, midZooms] = webaric._zoom(
+      const [outerZooms, midZooms] = wasmcomp._zoom(
         0b10110101001010110101001010011110,
         0b10110101001010110101001010100000,
       );
