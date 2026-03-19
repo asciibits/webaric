@@ -1,6 +1,7 @@
 (module
   ;; IMPORT(utils.wat)
   (func $not32 (import "utils" "_not32") (param i32) (result i32))
+  (func $neg32 (import "utils" "_neg32") (param i32) (result i32))
   (func $log1 (import "utils" "_log1") (param i32))
   (func $log2 (import "utils" "_log2") (param i32 i32) (result i32))
   (func $log3 (import "utils" "_log3") (param i32 i32 i32) (result i32 i32))
@@ -8,6 +9,7 @@
     (param i32 i32 i32 i32)
     (result i32 i32 i32)
   )
+  (func $ilog3 (import "utils" "log3") (param i32 i32 i32))
   ;; IMPORT_END
 
   ;; Calculate the number of times we can "zoom" into a windowed region.
@@ -222,7 +224,7 @@
   ;; (outside of heavily tuned test code) and won't impact compression. Also,
   ;; it will be evealuated as an extremely unlikely branch, allowing near zero
   ;; performance loss as the CPUs branch predictors do their job.
-  (func $encode_bit (export "_encode_range")
+  (func $encode_range (export "_encode_range")
     ;; State Parameters (initialized to 0 for 1st call, copied from previous call
     ;; for subsequent calls)
     ;;
@@ -276,6 +278,7 @@
     (if (result i64 i64 i64 i32 i32 i64 i64)
       (local.tee $zooms (i32.add (local.get $zooms) (local.get $outer_zooms)))
       (then
+        (call $ilog3 (i32.const 0xAA) (local.get $outer_zooms) (local.get $zooms))
         ;; we have zooms
 
         ;; set scratch with new data
@@ -335,33 +338,34 @@
                 ;; spilled over the 64 bit boundary - need to grab the missing
                 ;; bits of $low
                 (local.set $tmp
-                  (i64.shl
-                    (i64.shr_u
-                      (i64.extend_i32_u
+                  (i64.extend_i32_u
+                    (i32.shl
+                      (i32.shr_u
                         (i32.and
                           (local.get $low)
-                          (call $not32
-                            (i32.shr_u (i32.const -1) (local.get $zooms))
+                          (i32.shl
+                            (i32.const -1)
+                            (call $neg32 (local.get $zooms))
                           )
                         )
+                        (i32.wrap_i64 (local.get $scratch_idx))
                       )
-                      (local.get $scratch_idx)
+                      (local.get $zooms)
                     )
-                    (i64.extend_i32_u (local.get $zooms))
                   )
                 )
                 (if (result i64 i64)
                   (i64.ge_u (local.get $dangling_idx) (i64.const 64))
                   (then
-                    (local.get $tmp)
+                    (i64.shl (local.get $tmp) (i64.const 32))
                     (i64.and (local.get $scratch_idx) (i64.const 0x1f))
                   )
                   (else
                     (i64.or
-                      (i64.shl (local.get $scratch_idx) (i64.const 32))
-                      (i64.shr_u (local.get $tmp) (i64.const 32))
+                      (i64.shl (local.get $scratch) (i64.const 32))
+                      (local.get $tmp)
                     )
-                    (i64.and (local.get $scratch_idx) (i64.const 0x3f))
+                    (i64.sub (local.get $scratch_idx) (i64.const 32))
                   )
                 )
               )
@@ -384,13 +388,16 @@
             (i64.shr_u (local.get $dangling_idx) (i64.const 5))
           )
           (else
-            (local.set $scratch_idx
-              (i64.add
-                (local.get $scratch_idx) (i64.extend_i32_u (local.get $zooms))
+            ;; result: scratch
+            (local.get $scratch)
+            ;; result: scratch_idx
+            (if (result i64)
+              (i32.gt_u
+                (i32.add
+                  (i32.wrap_i64 (local.get $scratch_idx)) (local.get $zooms)
+                )
+                (i32.const 63)
               )
-            )
-            (if
-              (i64.gt_u (local.get $scratch_idx) (i64.const 63))
               (then
                 ;; make sure the zooms don't overflow 64 bits. This is absurdly
                 ;; unlikely. In this case, clamp zooms and scratch_idx
@@ -403,13 +410,14 @@
                     )
                   )
                 )
-                (local.set $scratch_idx (i64.const 63))
+                (i64.const 63)
+              )
+              (else
+                (local.get $scratch_idx)
               )
             )
             ;; no outer_zooms - leave the dangling_idx and move the scratch_idx
             ;; but don't allow scratch_idx to overwrite $scratch
-            (local.get $scratch)
-            (local.get $scratch_idx)
             (local.get $dangling_idx)
             (i32.shl (local.get $low) (local.get $zooms))
             (i32.shl (local.get $high) (local.get $zooms))

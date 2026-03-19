@@ -192,7 +192,7 @@ suite('Utils', () => {
   });
 });
 suite('Arithmetic Coder', () => {
-  suite('Encoding Zooms', () => {
+  suite('Zooms', () => {
     test('no zoom low', () => {
       const [outerZooms, midZooms] = wasmcomp._zoom(0x3fffffff, 0x80000000);
       assert.equal(outerZooms, 0);
@@ -250,6 +250,21 @@ suite('Arithmetic Coder', () => {
       );
       assert.equal(outerZooms, 26);
       assert.equal(midZooms, 4);
+    });
+  });
+  suite.only('Encode Range', () => {
+    test('does nothing when range > 2^31', () => {
+      enableLogging = true;
+      const [scratch, scratchIdx, danglingIdx, low, high, resultCount, result] =
+        wasmcomp._encode_range(0n, 0n, 0n, 0, 0xffffffff);
+
+      assert.equal(scratch, 0n);
+      assert.equal(scratchIdx, 0n);
+      assert.equal(danglingIdx, 0n);
+      assert.equal(low, 0);
+      assert.equal(high, 0xffffffff|0);
+      assert.equal(resultCount, 0n);
+      assert.deepEqual(result, 0n);
     });
   });
 });
