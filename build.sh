@@ -9,6 +9,7 @@ for i in ./src/*.wat; do
     trap 'rm -f "$TMP_FILE"' EXIT ERR HUP INT TERM
     npx wasm-as -all "./src/$file.wat" -o "$TMP_FILE"
     # npx wasm-opt -all -O3 "$TMP_FILE" -o "./lib/$file.wasm"
+    mv "$TMP_FILE" ./lib/$file.wasm
     # npx -p wabt wat2wasm --enable-multi-memory src/$file.wat -o lib/$file.wasm
   fi
 done
