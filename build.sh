@@ -4,6 +4,8 @@ echo "Building..." >&2
 tsc
 # compile source to wasm
 cargo build --profile wasm --features js_debug --target wasm32-unknown-unknown
+START=$(date +%s.%N)
+echo -e "    \033[1;32mStripping wasm\033[m..." >&2
 WAT_FILE="$(mktemp)"
 WASM_FILE="$(mktemp)"
 trap 'rm -f "$WAT_FILE" "$WASM_FILE"' EXIT ERR HUP INT TERM
@@ -16,7 +18,6 @@ if [ "${#exports[*]}" == "0" ]; then
 fi
 # turn the list of exports into a sed expression like: "add"|"sub"
 exports="$(IFS="|"; echo "${exports[*]}")"
-echo -e "    \033[1;32mPreserving wasm exports\033[m: ${exports//|/,}" >&2
 # strip all non-exported symbols from the web assembly
 sed -i -r -e "/$exports/! s/\(export\s*\"[^\"]*\"(\s*\([^\)]*\))*\s*\)//g" -e '/__wbg_/ {s/"__wbindgen_placeholder__"/"js"/;s/"__wbg_(.*)_[a-f0-9]*"/"\1"/}' $WAT_FILE
 # strip remaining dead code
@@ -25,6 +26,10 @@ npx wasm-opt -all -O3 $WASM_FILE -o ./lib/wasmcomp.wasm
 
 # Not necessary, but useful to have the text wat file around
 npx wasm2wat -f ./lib/wasmcomp.wasm -o ./generated/wasmcomp.wat
+
+END=$(date +%s.%N)
+echo -e "    \033[1;32mFinished\033[m in $(echo "($END - $START)" | bc | sed -r 's/\.(..).*/.\1/')s. WASM exports: ${exports//|/,}" >&2
+
 
 # for i in ./src/*.wat; do
 #   file="$(basename $i .wat)"

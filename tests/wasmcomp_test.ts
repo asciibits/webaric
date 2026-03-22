@@ -96,9 +96,20 @@ let callback = function (name: string, params: string[], ...args: any[]) {
 };
 
 let lastEncoded: {result: bigint; resultCount: number} | null = null;
+let lastError: {errorCode: number; p1: number; p2: number; p3: number} | null =
+  null;
 
 let bitEncoded = function (result: bigint, resultCount: number) {
   lastEncoded = {result, resultCount};
+};
+
+let errorHandler = function (
+  errorCode: number,
+  p1: number,
+  p2: number,
+  p3: number,
+) {
+  lastError = {errorCode, p1, p2, p3};
 };
 
 before(async () => {
@@ -106,6 +117,8 @@ before(async () => {
     js: {
       // bit encoder callback
       bit_encoded: bitEncoded,
+      // error handler
+      error_handler: errorHandler,
       // logging functions for help
       log32_1: log32s,
       log32_2: log32s,

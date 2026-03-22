@@ -46,10 +46,10 @@
   "main": "index.js",
   "scripts": {
     "build": "./build.sh",
-    "ibuild": "find ./src | entr -s 'npm run build'",
-    "test": "tsx --test",
-    "itest": "find ./tests ./lib | entr -s 'tsx --test --test-reporter dot'",
-    "itestonly": "find ./tests ./lib | entr -s 'tsx --test --test-only'",
+    "ibuild": "find ./src | entr -n npm run build",
+    "test": "cargo test && tsx --test",
+    "itest": "find ./tests ./lib | entr -n tsx --test --test-reporter dot",
+    "itestonly": "find ./tests ./lib | entr -n tsx --test --test-only",
     "clean": "rm -rf ./lib/* ./generated/* && cargo clean",
     "prettier-format": "prettier --config .prettierrc '**/*.ts' '**/*.html' '**/*.css' --write",
     "dist": "./dist.sh"
