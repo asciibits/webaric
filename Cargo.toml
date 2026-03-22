@@ -11,4 +11,15 @@ wasm-bindgen = "0.2.114"
 
 [profile.release]
 lto = true
-strip = "symbols"
+strip = "debuginfo"
+
+# The wasm profile is used to create reasonably tidy wasm, by inlining code
+# where requested, optimizing across build units, and disabling overflow checks.
+[profile.wasm]
+inherits = "dev"
+lto = true
+opt-level = 2
+overflow-checks = false
+
+[features]
+js_debug = []

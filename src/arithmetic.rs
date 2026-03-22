@@ -1,14 +1,20 @@
-use crate::utils::{Range, weighted_mid, weighted_mid_f64, weighted_mid_ratio};
+use crate::utils::Range;
+
+#[cfg(target_family = "wasm")]
 use wasm_bindgen::prelude::wasm_bindgen;
 
-#[wasm_bindgen]
+#[cfg(target_family = "wasm")]
+#[cfg_attr(target_family = "wasm", wasm_bindgen)]
 extern "C" {
     // encode bit result callback
     fn bit_encoded(result: u64, result_count: u32);
 
     // javascript logging functions
+    #[cfg(feature = "js_debug")]
     fn log32_1(a: u32);
+    #[cfg(feature = "js_debug")]
     fn log32_2(a: u32, b: u32);
+    #[cfg(feature = "js_debug")]
     fn log32_3(a: u32, b: u32, c: u32);
 }
 
@@ -32,6 +38,7 @@ pub struct EncodeResult {
 }
 
 impl Encoder {
+    #[cfg_attr(target_family = "wasm", inline(always))]
     pub fn new() -> Encoder {
         Encoder {
             scratch: 0,
@@ -181,6 +188,7 @@ impl Encoder {
     ///
     /// Interestingly, in this case, the above logic holds. We will always get a 0 for $outer_zooms,
     /// and the correct # for any viable mid zooms.
+    #[cfg_attr(target_family = "wasm", inline(always))]
     fn zoom(range: &mut Range) -> ZoomResult {
         let xor = range.low ^ range.high;
         let outer_zooms = xor.leading_zeros();
@@ -228,6 +236,7 @@ impl Encoder {
     /// affect, this contingency will never get hit (outside of heavily tuned test code) and won't
     /// impact compression. Also, it will be evealuated as an extremely unlikely branch, allowing
     /// near zero performance loss as the CPUs branch predictors do their job.
+    #[cfg_attr(target_family = "wasm", inline(always))]
     fn encode_range(&mut self) -> EncodeResult {
         let ZoomResult {
             zooms,
@@ -292,9 +301,10 @@ impl Encoder {
         }
     }
 
+    #[cfg_attr(target_family = "wasm", inline(always))]
     pub fn encode_bit(&mut self, bit: bool, p: u32) -> EncodeResult {
         if p != 0 {
-            let mid = weighted_mid(&self.range, p);
+            let mid = self.range.weighted_mid(p);
             if bit {
                 self.range.high = mid;
             } else {
@@ -302,9 +312,9 @@ impl Encoder {
             }
             return self.encode_range();
         } else {
-            if bit {
-                panic!("Bit set with zero probability")
-            }
+            // if bit {
+            //     panic!("Bit set with zero probability")
+            // }
             EncodeResult {
                 result: 0,
                 result_count: 0,
@@ -312,29 +322,30 @@ impl Encoder {
         }
     }
 
+    #[cfg_attr(target_family = "wasm", inline(always))]
     pub fn encode_bit_ratio(&mut self, bit: bool, p_num: u32, p_den: u32) -> EncodeResult {
-        if p_num > p_den {
-            panic!("Probability greater than one")
-        }
+        // if p_num > p_den {
+        //     panic!("Probability greater than one")
+        // }
         if p_num == 0 {
-            if bit {
-                panic!("Bit set with zero probability")
-            }
+            // if bit {
+            //     panic!("Bit set with zero probability")
+            // }
             return EncodeResult {
                 result: 0,
                 result_count: 0,
             };
         }
-        if p_num == p_den {
-            if !bit {
-                panic!("Bit unset with one probability")
-            }
+        if p_num >= p_den {
+            // if !bit {
+            //     panic!("Bit unset with one probability")
+            // }
             return EncodeResult {
                 result: 0,
                 result_count: 0,
             };
         }
-        let mid = weighted_mid_ratio(&self.range, p_num, p_den);
+        let mid = self.range.weighted_mid_ratio(p_num, p_den);
         if bit {
             self.range.high = mid;
         } else {
@@ -343,32 +354,33 @@ impl Encoder {
         return self.encode_range();
     }
 
+    #[cfg_attr(target_family = "wasm", inline(always))]
     pub fn encode_bit_f64(&mut self, bit: bool, p: f64) -> EncodeResult {
-        if p > 1.0 {
-            panic!("Probability greater than one")
-        }
-        if p < 0.0 {
-            panic!("Probability less than zero")
-        }
-        if p == 0.0 {
-            if bit {
-                panic!("Bit set with zero probability")
-            }
+        // if p > 1.0 {
+        //     panic!("Probability greater than one")
+        // }
+        // if p < 0.0 {
+        //     panic!("Probability less than zero")
+        // }
+        if p <= 0.0 {
+            // if bit {
+            //     panic!("Bit set with zero probability")
+            // }
             return EncodeResult {
                 result: 0,
                 result_count: 0,
             };
         }
-        if p == 1.0 {
-            if !bit {
-                panic!("Bit unset with one probability")
-            }
+        if p >= 1.0 {
+            // if !bit {
+            //     panic!("Bit unset with one probability")
+            // }
             return EncodeResult {
                 result: 0,
                 result_count: 0,
             };
         }
-        let mid = weighted_mid_f64(&self.range, p);
+        let mid = self.range.weighted_mid_f64(p);
         if bit {
             self.range.high = mid;
         } else {
@@ -378,13 +390,16 @@ impl Encoder {
     }
 }
 
-#[wasm_bindgen]
+#[cfg(target_family = "wasm")]
+#[cfg_attr(target_family = "wasm", wasm_bindgen)]
 pub fn zoom(low: u32, high: u32) -> u64 {
     let mut range = Range { low, high };
     let zoom_result = Encoder::zoom(&mut range);
     (zoom_result.zooms as u64) << 32 | (zoom_result.outer_zooms as u64)
 }
-#[wasm_bindgen]
+
+#[cfg(target_family = "wasm")]
+#[cfg_attr(target_family = "wasm", wasm_bindgen)]
 pub fn encode_bit(low: u32, high: u32, bit: bool, p: u32) {
     let mut encoder = Encoder::new();
     encoder.range.low = low;
@@ -395,7 +410,9 @@ pub fn encode_bit(low: u32, high: u32, bit: bool, p: u32) {
     } = encoder.encode_bit(bit, p);
     bit_encoded(result, result_count);
 }
-#[wasm_bindgen]
+
+#[cfg(target_family = "wasm")]
+#[cfg_attr(target_family = "wasm", wasm_bindgen)]
 pub fn encode_bit_ratio(low: u32, high: u32, bit: bool, p_num: u32, p_den: u32) {
     let mut encoder = Encoder::new();
     encoder.range.low = low;
@@ -406,7 +423,9 @@ pub fn encode_bit_ratio(low: u32, high: u32, bit: bool, p_num: u32, p_den: u32) 
     } = encoder.encode_bit_ratio(bit, p_num, p_den);
     bit_encoded(result, result_count);
 }
-#[wasm_bindgen]
+
+#[cfg(target_family = "wasm")]
+#[cfg_attr(target_family = "wasm", wasm_bindgen)]
 pub fn encode_bit_f64(low: u32, high: u32, bit: bool, p: f64) {
     let mut encoder = Encoder::new();
     encoder.range.low = low;

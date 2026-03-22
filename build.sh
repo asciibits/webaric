@@ -3,13 +3,13 @@
 echo "Building..." >&2
 tsc
 # compile source to wasm
-cargo build --release --target wasm32-unknown-unknown
+cargo build --profile wasm --features js_debug --target wasm32-unknown-unknown
 WAT_FILE="$(mktemp)"
 WASM_FILE="$(mktemp)"
 trap 'rm -f "$WAT_FILE" "$WASM_FILE"' EXIT ERR HUP INT TERM
-npx wasm2wat ./target/wasm32-unknown-unknown/release/wasmcomp.wasm -o $WAT_FILE
+npx wasm2wat ./target/wasm32-unknown-unknown/wasm/wasmcomp.wasm -o $WAT_FILE
 # get the list of exported finctions
-exports=( $(sed -r -n -e '/^#\[wasm_bindgen\]$/{n;/^pub fn /s/^.* ([^ ]*)\(.*/"\1"/p}' src/*.rs) )
+exports=( $(sed -r -n -e '/wasm_bindgen/{n;/^pub fn /s/^.* ([^ ]*)\(.*/"\1"/p}' src/*.rs) )
 # turn the list of exports into a sed expression like: "add"|"sub"
 exports="$(IFS="|"; echo "${exports[*]}")"
 # strip all non-exported symbols from the web assembly
