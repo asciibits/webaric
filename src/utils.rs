@@ -1,7 +1,21 @@
-#[derive(PartialEq, Debug)]
+#[cfg(test)]
+use std::fmt::Debug;
+
+#[derive(PartialEq)]
 pub struct Range {
     pub low: u32,
     pub high: u32,
+}
+#[cfg(test)]
+impl Debug for Range {
+    // Use hex for the low/high
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Range {{ low: 0x{:x}, high: 0x{:x} }}",
+            self.low, self.high
+        )
+    }
 }
 
 impl Range {
@@ -16,7 +30,8 @@ impl Range {
     /// Calculate a weighted mid-point value in the range [low, high] proportional to p / 2^32.
     #[cfg_attr(target_family = "wasm", inline(always))]
     pub(crate) fn weighted_mid(&self, p: u32) -> u32 {
-        ((((self.high.wrapping_sub(self.low)) as u64 + 1) * p as u64) >> 32) as u32 + self.low
+        (((((self.high.wrapping_sub(self.low)) as u64 + 1) * p as u64) >> 32) as u32)
+            .wrapping_add(self.low)
     }
 
     /// Calculate a weighted mid-point value in the range [low, high] proportional to p_num /
@@ -26,8 +41,8 @@ impl Range {
     /// version that works on the full 2^32 range.
     #[cfg_attr(target_family = "wasm", inline(always))]
     pub(crate) fn weighted_mid_ratio(&self, p_num: u32, p_den: u32) -> u32 {
-        ((((self.high.wrapping_sub(self.low)) as u64 + 1) * p_num as u64) / p_den as u64) as u32
-            + self.low
+        (((((self.high.wrapping_sub(self.low)) as u64 + 1) * p_num as u64) / p_den as u64) as u32)
+            .wrapping_add(self.low)
     }
 
     /// Find the weighted midpoint for a given low/high region, and a given percentage.
@@ -46,7 +61,7 @@ impl Range {
     /// and f32.sqrt are both well defined, and thus consistent.
     #[cfg_attr(target_family = "wasm", inline(always))]
     pub(crate) fn weighted_mid_f64(&self, p: f64) -> u32 {
-        self.weighted_mid((p * 4294967296.0) as u32)
+        self.weighted_mid(((p * 4294967296.0) as u64) as u32)
     }
 
     /// Calculate the number of times we can "zoom" into a windowed region.
@@ -207,11 +222,22 @@ impl Range {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq)]
 pub struct Scratch {
     pub scratch: u64,
     pub scratch_idx: u32,
     pub dangling_idx: u32,
+}
+#[cfg(test)]
+impl Debug for Scratch {
+    // Use hex for scratch field
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Scratch {{ scratch: 0x{:x}, scratch_idx: {}, dangling_idx: {} }}",
+            self.scratch, self.scratch_idx, self.dangling_idx
+        )
+    }
 }
 
 impl Scratch {
@@ -283,15 +309,487 @@ impl Scratch {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq)]
 pub struct ZoomResult {
     pub zooms: u32,
     pub outer_zooms: u32,
     pub emitted_bits: u32,
 }
+#[cfg(test)]
+impl Debug for ZoomResult {
+    // Use hex for the emitted bits
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "ZoomResult {{ zooms: {}, outer_zooms: {}, emitted_bits: 0x{:x} }}",
+            self.zooms, self.outer_zooms, self.emitted_bits
+        )
+    }
+}
 
-#[derive(PartialEq, Debug)]
 pub struct EncodeResult {
     pub result: u64,
     pub result_count: u32,
+}
+
+#[cfg(test)]
+impl Debug for EncodeResult {
+    // Use hex for the result
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "EncodeResult {{ result: 0x{:x}, result_count: {} }}",
+            self.result, self.result_count
+        )
+    }
+}
+#[cfg(test)]
+impl PartialEq for EncodeResult {
+    // For `result`, we only care about the bits associated with result_count
+    fn eq(&self, other: &Self) -> bool {
+        let shift = 64 - self.result_count * 32;
+        self.result_count == other.result_count
+            && (self.result ^ other.result).unbounded_shr(shift) == 0
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn range(low: u32, high: u32) -> Range {
+        Range { low, high }
+    }
+    fn scratch(scratch: u64, scratch_idx: u32, dangling_idx: u32) -> Scratch {
+        Scratch {
+            scratch: scratch as u64,
+            scratch_idx,
+            dangling_idx,
+        }
+    }
+    fn zoom_result(zooms: u32, outer_zooms: u32, emitted_bits: u32) -> ZoomResult {
+        ZoomResult {
+            zooms,
+            outer_zooms,
+            emitted_bits,
+        }
+    }
+    fn encode_result(result: u64, result_count: u32) -> EncodeResult {
+        EncodeResult {
+            result,
+            result_count,
+        }
+    }
+
+    mod range {
+        mod zoom {
+            use super::super::*;
+
+            #[test]
+            fn no_zoom_low() {
+                let mut old_range = range(0x3fffffff, 0x80000000);
+                assert_eq!(old_range.zoom(63), zoom_result(0, 0, 0));
+                assert_eq!(old_range, range(0x3fffffff, 0x80000000));
+            }
+            #[test]
+            fn single_zoom_low() {
+                let mut old_range = range(0x3fffffff, 0x7fffffff);
+                assert_eq!(old_range.zoom(63), zoom_result(1, 1, 0));
+                assert_eq!(old_range, range(0x7ffffffe, 0xffffffff));
+            }
+            #[test]
+            fn single_zoom_mid_lower() {
+                let mut old_range = range(0x40000000, 0x80000000);
+                assert_eq!(old_range.zoom(63), zoom_result(1, 0, 0));
+                assert_eq!(old_range, range(0x80000000, 1));
+            }
+            #[test]
+            fn no_zoom_high() {
+                let mut old_range = range(0x7fffffff, 0xc0000000);
+                assert_eq!(old_range.zoom(63), zoom_result(0, 0, 0));
+                assert_eq!(old_range, range(0x7fffffff, 0xc0000000));
+            }
+            #[test]
+            fn single_zoom_high() {
+                let mut old_range = range(0x80000000, 0xc0000000);
+                assert_eq!(old_range.zoom(63), zoom_result(1, 1, 0x80000000));
+                assert_eq!(old_range, range(0, 0x80000001));
+            }
+            #[test]
+            fn single_zoom_mid_upper() {
+                let mut old_range = range(0x7fffffff, 0xbfffffff);
+                assert_eq!(old_range.zoom(63), zoom_result(1, 0, 0));
+                assert_eq!(old_range, range(0xfffffffe, 0x7fffffff));
+            }
+            #[test]
+            fn max_zooms_low() {
+                let mut old_range = range(0, 1);
+                assert_eq!(old_range.zoom(63), zoom_result(31, 31, 0));
+                assert_eq!(old_range, range(0, 0xffffffff));
+            }
+            #[test]
+            fn max_zooms_high() {
+                let mut old_range = range(0xfffffffe, 0xffffffff);
+                assert_eq!(old_range.zoom(63), zoom_result(31, 31, 0xfffffffe));
+                assert_eq!(old_range, range(0, 0xffffffff));
+            }
+            #[test]
+            fn max_zooms_mid() {
+                let mut old_range = range(0x7fffffff, 0x80000000);
+                assert_eq!(old_range.zoom(63), zoom_result(31, 0, 0x7ffffffe));
+                assert_eq!(old_range, range(0x80000000, 0x7fffffff));
+            }
+            #[test]
+            fn identical_zooms() {
+                let mut old_range = range(0xdeadbeef, 0xdeadbeef);
+                assert_eq!(old_range.zoom(63), zoom_result(32, 32, 0xdeadbeef));
+                assert_eq!(old_range, range(0, 0xffffffff));
+            }
+            #[test]
+            fn many_zooms_arbitrary() {
+                let mut old_range = range(
+                    0b10110101001010110101001010011110,
+                    0b10110101001010110101001010100000,
+                );
+                assert_eq!(
+                    old_range.zoom(63),
+                    zoom_result(30, 26, 0b10110101001010110101001010011100)
+                );
+                assert_eq!(
+                    old_range,
+                    range(
+                        0b10000000000000000000000000000000,
+                        0b00111111111111111111111111111111,
+                    )
+                );
+            }
+        }
+        mod weighted_mid {
+            mod p_i32 {
+                use super::super::super::super::Range;
+
+                #[test]
+                fn max_range() {
+                    let range = Range {
+                        low: 0,
+                        high: 0xffffffff,
+                    };
+                    assert_eq!(range.weighted_mid(0), 0);
+                    assert_eq!(range.weighted_mid(1), 1);
+                    assert_eq!(range.weighted_mid(0xdeadbeef), 0xdeadbeef);
+                    assert_eq!(range.weighted_mid(0xfffffffe), 0xfffffffe);
+                    assert_eq!(range.weighted_mid(0xffffffff), 0xffffffff);
+                }
+                #[test]
+                fn large_range() {
+                    let range = Range {
+                        low: 0x16932142,
+                        high: 0xcbcedabf,
+                    };
+                    assert_eq!(range.weighted_mid(0), 0x16932142);
+                    assert_eq!(range.weighted_mid(1), 0x16932142);
+                    assert_eq!(range.weighted_mid(0xdeadbeef), 0xb437eca5);
+                    assert_eq!(range.weighted_mid(0xfffffffe), 0xcbcedabe);
+                    assert_eq!(range.weighted_mid(0xffffffff), 0xcbcedabf);
+                }
+                #[test]
+                fn small_range() {
+                    let range = Range {
+                        low: 0x62918347,
+                        high: 0x7aefbcde,
+                    };
+                    assert_eq!(range.weighted_mid(0), 0x62918347);
+                    assert_eq!(range.weighted_mid(1), 0x62918347);
+                    assert_eq!(range.weighted_mid(0xdeadbeef), 0x77c3c312);
+                    assert_eq!(range.weighted_mid(0xfffffffe), 0x7aefbcde);
+                    assert_eq!(range.weighted_mid(0xffffffff), 0x7aefbcde);
+                }
+                #[test]
+                fn min_range() {
+                    let range = Range {
+                        low: 0xc0ffee99,
+                        high: 0xc0ffee99,
+                    };
+                    assert_eq!(range.weighted_mid(0), 0xc0ffee99);
+                    assert_eq!(range.weighted_mid(1), 0xc0ffee99);
+                    assert_eq!(range.weighted_mid(0xdeadbeef), 0xc0ffee99);
+                    assert_eq!(range.weighted_mid(0xfffffffe), 0xc0ffee99);
+                    assert_eq!(range.weighted_mid(0xffffffff), 0xc0ffee99);
+                }
+                #[test]
+                fn inverted_range() {
+                    let range = Range {
+                        low: 0x7aefbcde,
+                        high: 0x62918347,
+                    };
+                    assert_eq!(range.weighted_mid(0), 0x7aefbcde);
+                    assert_eq!(range.weighted_mid(1), 0x7aefbcde);
+                    assert_eq!(range.weighted_mid(0xdeadbeef), 0x446b3c03);
+                    assert_eq!(range.weighted_mid(0xfffffffe), 0x62918346);
+                    assert_eq!(range.weighted_mid(0xffffffff), 0x62918347);
+                }
+            }
+            mod p_ratio {
+                use super::super::super::super::Range;
+
+                #[test]
+                fn max_range() {
+                    let range = Range {
+                        low: 0,
+                        high: 0xffffffff,
+                    };
+                    assert_eq!(range.weighted_mid_ratio(0, 100), 0);
+                    assert_eq!(range.weighted_mid_ratio(1, 100), 0x28f5c28);
+                    assert_eq!(range.weighted_mid_ratio(59, 100), 0x970a3d70);
+                    assert_eq!(range.weighted_mid_ratio(99, 100), 0xfd70a3d7);
+                    // All p == 1.0 will actually give improper results - high+1
+                    assert_eq!(range.weighted_mid_ratio(100, 100), 0);
+                    assert_eq!(range.weighted_mid_ratio(0xffffffff, 0xffffffff), 0);
+                    assert_eq!(range.weighted_mid_ratio(0xfffffffe, 0xffffffff), 0xfffffffe);
+                }
+                #[test]
+                fn large_range() {
+                    let range = Range {
+                        low: 0x16932142,
+                        high: 0xcbcedabf,
+                    };
+                    assert_eq!(range.weighted_mid_ratio(0, 100), 0x16932142);
+                    assert_eq!(range.weighted_mid_ratio(1, 100), 0x18631650);
+                    assert_eq!(range.weighted_mid_ratio(59, 100), 0x81809b7f);
+                    assert_eq!(range.weighted_mid_ratio(99, 100), 0xc9fee5b1);
+                    // All p == 1.0 will actually give improper results - high+1
+                    assert_eq!(range.weighted_mid_ratio(100, 100), 0xcbcedac0);
+                    assert_eq!(range.weighted_mid_ratio(0xffffffff, 0xffffffff), 0xcbcedac0);
+                    assert_eq!(range.weighted_mid_ratio(0xfffffffe, 0xffffffff), 0xcbcedabf);
+                }
+                #[test]
+                fn small_range() {
+                    let range = Range {
+                        low: 0x62918347,
+                        high: 0x7aefbcde,
+                    };
+                    assert_eq!(range.weighted_mid_ratio(0, 100), 0x62918347);
+                    assert_eq!(range.weighted_mid_ratio(1, 100), 0x62cfe522);
+                    assert_eq!(range.weighted_mid_ratio(59, 100), 0x70f210c7);
+                    assert_eq!(range.weighted_mid_ratio(99, 100), 0x7ab15b03);
+                    // All p == 1.0 will actually give improper results - high+1
+                    assert_eq!(range.weighted_mid_ratio(100, 100), 0x7aefbcdf);
+                    assert_eq!(range.weighted_mid_ratio(0xffffffff, 0xffffffff), 0x7aefbcdf);
+                    assert_eq!(range.weighted_mid_ratio(0xfffffffe, 0xffffffff), 0x7aefbcde);
+                }
+                #[test]
+                fn min_range() {
+                    let range = Range {
+                        low: 0xc0ffee99,
+                        high: 0xc0ffee99,
+                    };
+                    assert_eq!(range.weighted_mid_ratio(0, 100), 0xc0ffee99);
+                    assert_eq!(range.weighted_mid_ratio(1, 100), 0xc0ffee99);
+                    assert_eq!(range.weighted_mid_ratio(59, 100), 0xc0ffee99);
+                    assert_eq!(range.weighted_mid_ratio(99, 100), 0xc0ffee99);
+                    // All p == 1.0 will actually give improper results - high+1
+                    assert_eq!(range.weighted_mid_ratio(100, 100), 0xc0ffee9a);
+                    assert_eq!(range.weighted_mid_ratio(0xffffffff, 0xffffffff), 0xc0ffee9a);
+                    assert_eq!(range.weighted_mid_ratio(0xfffffffe, 0xffffffff), 0xc0ffee99);
+                }
+                #[test]
+                fn inverted_range() {
+                    let range = Range {
+                        low: 0x7aefbcde,
+                        high: 0x62918347,
+                    };
+                    assert_eq!(range.weighted_mid_ratio(0, 100), 0x7aefbcde);
+                    assert_eq!(range.weighted_mid_ratio(1, 100), 0x7d40b72b);
+                    assert_eq!(range.weighted_mid_ratio(59, 100), 0x03996ccf);
+                    assert_eq!(range.weighted_mid_ratio(99, 100), 0x604088fa);
+                    // All p == 1.0 will actually give improper results - high+1
+                    assert_eq!(range.weighted_mid_ratio(100, 100), 0x62918348);
+                    assert_eq!(range.weighted_mid_ratio(0xffffffff, 0xffffffff), 0x62918348);
+                    assert_eq!(range.weighted_mid_ratio(0xfffffffe, 0xffffffff), 0x62918347);
+                }
+            }
+            mod p_f64 {
+                use super::super::super::super::Range;
+
+                #[test]
+                fn max_range() {
+                    let range = Range {
+                        low: 0,
+                        high: 0xffffffff,
+                    };
+                    assert_eq!(range.weighted_mid_f64(0.0), 0);
+                    assert_eq!(range.weighted_mid_f64(1.0 / 100.0), 0x28f5c28);
+                    assert_eq!(range.weighted_mid_f64(59.0 / 100.0), 0x970a3d70);
+                    assert_eq!(range.weighted_mid_f64(99.0 / 100.0), 0xfd70a3d7);
+                    // All p == 1.0 will actually give improper results - high+1
+                    assert_eq!(range.weighted_mid_f64(100.0 / 100.0), 0);
+                    assert_eq!(
+                        range.weighted_mid_f64(0xffffffffu32 as f64 / 0xffffffffu32 as f64),
+                        0
+                    );
+                    assert_eq!(
+                        range.weighted_mid_f64(0xfffffffeu32 as f64 / 0xffffffffu32 as f64),
+                        0xffffffff
+                    );
+                }
+                #[test]
+                fn large_range() {
+                    let range = Range {
+                        low: 0x16932142,
+                        high: 0xcbcedabf,
+                    };
+                    assert_eq!(range.weighted_mid_f64(0.0), 0x16932142);
+                    assert_eq!(range.weighted_mid_f64(1.0 / 100.0), 0x1863164f);
+                    assert_eq!(range.weighted_mid_f64(59.0 / 100.0), 0x81809b7f);
+                    assert_eq!(range.weighted_mid_f64(99.0 / 100.0), 0xc9fee5b1);
+                    // All p == 1.0 will actually give improper results - low
+                    assert_eq!(range.weighted_mid_f64(100.0 / 100.0), 0x16932142);
+                    assert_eq!(
+                        range.weighted_mid_f64(0xffffffffu32 as f64 / 0xffffffffu32 as f64),
+                        0x16932142
+                    );
+                    assert_eq!(
+                        range.weighted_mid_f64(0xfffffffeu32 as f64 / 0xffffffffu32 as f64),
+                        0xcbcedabf
+                    );
+                }
+                #[test]
+                fn small_range() {
+                    let range = Range {
+                        low: 0x62918347,
+                        high: 0x7aefbcde,
+                    };
+                    assert_eq!(range.weighted_mid_f64(0.0), 0x62918347);
+                    assert_eq!(range.weighted_mid_f64(1.0 / 100.0), 0x62cfe522);
+                    assert_eq!(range.weighted_mid_f64(59.0 / 100.0), 0x70f210c7);
+                    assert_eq!(range.weighted_mid_f64(99.0 / 100.0), 0x7ab15b03);
+                    // All p == 1.0 will actually give improper results - high+1
+                    assert_eq!(range.weighted_mid_f64(100.0 / 100.0), 0x62918347);
+                    assert_eq!(
+                        range.weighted_mid_f64(0xffffffffu32 as f64 / 0xffffffffu32 as f64),
+                        0x62918347
+                    );
+                    assert_eq!(
+                        range.weighted_mid_f64(0xfffffffeu32 as f64 / 0xffffffffu32 as f64),
+                        0x7aefbcde
+                    );
+                }
+                #[test]
+                fn min_range() {
+                    let range = Range {
+                        low: 0xc0ffee99,
+                        high: 0xc0ffee99,
+                    };
+                    assert_eq!(range.weighted_mid_f64(0.0 / 100.0), 0xc0ffee99);
+                    assert_eq!(range.weighted_mid_f64(1.0 / 100.0), 0xc0ffee99);
+                    assert_eq!(range.weighted_mid_f64(59.0 / 100.0), 0xc0ffee99);
+                    assert_eq!(range.weighted_mid_f64(99.0 / 100.0), 0xc0ffee99);
+                    // All p == 1.0 will actually give improper results - high+1
+                    assert_eq!(range.weighted_mid_f64(100.0 / 100.0), 0xc0ffee99);
+                    assert_eq!(
+                        range.weighted_mid_f64(0xffffffffu32 as f64 / 0xffffffffu32 as f64),
+                        0xc0ffee99
+                    );
+                    assert_eq!(
+                        range.weighted_mid_f64(0xfffffffeu32 as f64 / 0xffffffffu32 as f64),
+                        0xc0ffee99
+                    );
+                }
+                #[test]
+                fn inverted_range() {
+                    let range = Range {
+                        low: 0x7aefbcde,
+                        high: 0x62918347,
+                    };
+                    assert_eq!(range.weighted_mid_f64(0.0), 0x7aefbcde);
+                    assert_eq!(range.weighted_mid_f64(1.0 / 100.0), 0x7d40b72a);
+                    assert_eq!(range.weighted_mid_f64(59.0 / 100.0), 0x03996ccf);
+                    assert_eq!(range.weighted_mid_f64(99.0 / 100.0), 0x604088fa);
+                    // All p == 1.0 will actually give improper results - high+1
+                    assert_eq!(range.weighted_mid_f64(100.0 / 100.0), 0x7aefbcde);
+                    assert_eq!(
+                        range.weighted_mid_f64(0xffffffffu32 as f64 / 0xffffffffu32 as f64),
+                        0x7aefbcde
+                    );
+                    assert_eq!(
+                        range.weighted_mid_f64(0xfffffffeu32 as f64 / 0xffffffffu32 as f64),
+                        0x62918347
+                    );
+                }
+            }
+        }
+    }
+    mod scratch {
+        use super::*;
+
+        #[test]
+        fn max_mid_zooms_test() {
+            assert_eq!(scratch(0, 0, 0).max_mid_zooms(), 63);
+            assert_eq!(scratch(0, 45, 15).max_mid_zooms(), 18);
+            assert_eq!(scratch(0, 63, 31).max_mid_zooms(), 0);
+        }
+        mod apply_zoom {
+            use super::super::*;
+
+            #[test]
+            fn no_zoom_does_nothing() {
+                let mut scr = scratch(0xbad00000, 12, 12);
+                assert_eq!(scr.apply_zoom(&zoom_result(0, 0, 0)), encode_result(0, 0));
+                assert_eq!(scr, scratch(0xbad00000, 12, 12));
+            }
+            #[test]
+            fn single_outer_zoom_applies_zoom() {
+                let mut scr;
+                scr = scratch(0, 0, 0);
+                assert_eq!(scr.apply_zoom(&zoom_result(1, 1, 0)), encode_result(0, 0));
+                assert_eq!(scr, scratch(0, 1, 1));
+                scr = scratch(0xbad0000000000000, 12, 12);
+                assert_eq!(
+                    scr.apply_zoom(&zoom_result(1, 1, 0x80000000)),
+                    encode_result(0, 0)
+                );
+                assert_eq!(scr, scratch(0xbad8000000000000, 13, 13));
+                scr = scratch(0xdecafbac00000000, 31, 31);
+                assert_eq!(
+                    scr.apply_zoom(&zoom_result(1, 1, 0x80000000)),
+                    encode_result(0xdecafbad00000000, 1)
+                );
+                assert_eq!(scr, scratch(0, 0, 0));
+            }
+            #[test]
+            fn single_outer_zoom_resolves_mid() {
+                let mut scr;
+                scr = scratch(0, 1, 0);
+                assert_eq!(scr.apply_zoom(&zoom_result(1, 1, 0)), encode_result(0, 0));
+                assert_eq!(scr, scratch(0x4000000000000000, 2, 2));
+                scr = scratch(0, 1, 0);
+                assert_eq!(
+                    scr.apply_zoom(&zoom_result(1, 1, 0x80000000)),
+                    encode_result(0, 0)
+                );
+                assert_eq!(scr, scratch(0x8000000000000000, 2, 2));
+                scr = scratch(0xbaef000000000000, 16, 12);
+                assert_eq!(
+                    scr.apply_zoom(&zoom_result(1, 1, 0x80000000)),
+                    encode_result(0, 0)
+                );
+                assert_eq!(scr, scratch(0xbaf0000000000000, 17, 17));
+                scr = scratch(0xbaef000000000000, 16, 12);
+                assert_eq!(scr.apply_zoom(&zoom_result(1, 1, 0)), encode_result(0, 0));
+                assert_eq!(scr, scratch(0xbaef800000000000, 17, 17));
+                scr = scratch(0xdecafbae00000000, 31, 28);
+                assert_eq!(
+                    scr.apply_zoom(&zoom_result(1, 1, 0x80000000)),
+                    encode_result(0xdecafbb000000000, 1)
+                );
+                assert_eq!(scr, scratch(0, 0, 0));
+                scr = scratch(0xdecafbae00000000, 31, 28);
+                assert_eq!(
+                    scr.apply_zoom(&zoom_result(1, 1, 0)),
+                    encode_result(0xdecafbaf00000000, 1)
+                );
+                assert_eq!(scr, scratch(0, 0, 0));
+            }
+        }
+    }
 }

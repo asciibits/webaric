@@ -138,6 +138,8 @@ before(async () => {
 
 beforeEach(() => {
   enableLogging = false;
+  lastEncoded = null;
+  lastError = null;
 });
 
 // test(() => {

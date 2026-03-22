@@ -1,8 +1,5 @@
 use crate::utils::{EncodeResult, Range, Scratch};
 
-#[cfg(test)]
-use crate::utils::ZoomResult;
-
 #[cfg(target_family = "wasm")]
 use wasm_bindgen::prelude::wasm_bindgen;
 
@@ -233,87 +230,6 @@ pub fn encode_bit_f64(low: u32, high: u32, bit: bool, p: f64) {
 
 #[cfg(test)]
 mod tests {
-    mod range {
-        mod zoom {
-            use super::super::super::*;
-
-            fn validate_zoom(
-                low: u32,
-                high: u32,
-                zooms: u32,
-                outer_zooms: u32,
-                emitted_bits: u32,
-                new_low: u32,
-                new_high: u32,
-            ) {
-                let mut range = Range { low, high };
-                assert_eq!(
-                    range.zoom(63),
-                    ZoomResult {
-                        zooms,
-                        outer_zooms,
-                        emitted_bits,
-                    }
-                );
-                assert_eq!((range.low, range.high), (new_low, new_high));
-            }
-
-            #[test]
-            fn no_zoom_low() {
-                validate_zoom(0x3fffffff, 0x80000000, 0, 0, 0, 0x3fffffff, 0x80000000);
-            }
-            #[test]
-            fn single_zoom_low() {
-                validate_zoom(0x3fffffff, 0x7fffffff, 1, 1, 0, 0x7ffffffe, 0xffffffff);
-            }
-            #[test]
-            fn single_zoom_mid_lower() {
-                validate_zoom(0x40000000, 0x80000000, 1, 0, 0, 0x80000000, 1);
-            }
-            #[test]
-            fn no_zoom_high() {
-                validate_zoom(0x7fffffff, 0xc0000000, 0, 0, 0, 0x7fffffff, 0xc0000000);
-            }
-            #[test]
-            fn single_zoom_high() {
-                validate_zoom(0x80000000, 0xc0000000, 1, 1, 0x80000000, 0, 0x80000001);
-            }
-            #[test]
-            fn single_zoom_mid_upper() {
-                validate_zoom(0x7fffffff, 0xbfffffff, 1, 0, 0, 0xfffffffe, 0x7fffffff);
-            }
-            #[test]
-            fn max_zooms_low() {
-                validate_zoom(0, 1, 31, 31, 0, 0, 0xffffffff);
-            }
-            #[test]
-            fn max_zooms_high() {
-                validate_zoom(0xfffffffe, 0xffffffff, 31, 31, 0xfffffffe, 0, 0xffffffff);
-            }
-            #[test]
-            fn max_zooms_mid() {
-                validate_zoom(
-                    0x7fffffff, 0x80000000, 31, 0, 0x7ffffffe, 0x80000000, 0x7fffffff,
-                );
-            }
-            #[test]
-            fn identical_zooms() {
-                validate_zoom(0xdeadbeef, 0xdeadbeef, 32, 32, 0xdeadbeef, 0, 0xffffffff);
-            }
-            #[test]
-            fn many_zooms_arbitrary() {
-                validate_zoom(
-                    0b10110101001010110101001010011110,
-                    0b10110101001010110101001010100000,
-                    30,
-                    26,
-                    0b10110101001010110101001010011100,
-                    0b10000000000000000000000000000000,
-                    0b00111111111111111111111111111111,
-                );
-            }
-        }
-    }
     mod encode_state {
         mod encode_range {
             use super::super::super::*;

@@ -49,6 +49,7 @@
     "ibuild": "find ./src | entr -n npm run build",
     "test": "cargo test && tsx --test",
     "itest": "find ./tests ./lib | entr -n tsx --test --test-reporter dot",
+    "icargotest": "find ./src -name \\*.rs | entr -n cargo test",
     "itestonly": "find ./tests ./lib | entr -n tsx --test --test-only",
     "clean": "rm -rf ./lib/* ./generated/* && cargo clean",
     "prettier-format": "prettier --config .prettierrc '**/*.ts' '**/*.html' '**/*.css' --write",
