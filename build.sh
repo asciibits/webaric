@@ -14,9 +14,9 @@ if [ "${#exports[*]}" == "0" ]; then
   echo "No exports found - problem with the build script?" >&2
   exit 1
 fi
-echo -e "    \033[1;32mPreserving wasm exports\033[m: ${exports[@]/*/&,}" >&2
 # turn the list of exports into a sed expression like: "add"|"sub"
 exports="$(IFS="|"; echo "${exports[*]}")"
+echo -e "    \033[1;32mPreserving wasm exports\033[m: ${exports//|/,}" >&2
 # strip all non-exported symbols from the web assembly
 sed -i -r -e "/$exports/! s/\(export\s*\"[^\"]*\"(\s*\([^\)]*\))*\s*\)//g" -e '/__wbg_/ {s/"__wbindgen_placeholder__"/"js"/;s/"__wbg_(.*)_[a-f0-9]*"/"\1"/}' $WAT_FILE
 # strip remaining dead code
@@ -24,7 +24,7 @@ npx wat2wasm --enable-all $WAT_FILE -o $WASM_FILE
 npx wasm-opt -all -O3 $WASM_FILE -o ./lib/wasmcomp.wasm
 
 # Not necessary, but useful to have the text wat file around
-npx wasm2wat ./lib/wasmcomp.wasm -o ./generated/wasmcomp.wat
+npx wasm2wat -f ./lib/wasmcomp.wasm -o ./generated/wasmcomp.wat
 
 # for i in ./src/*.wat; do
 #   file="$(basename $i .wat)"
