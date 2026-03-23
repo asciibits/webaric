@@ -97,7 +97,7 @@ impl Encoder {
             }
             Result::Ok(EncodeResult {
                 result: 0,
-                result_count: 0,
+                result_bits: 0,
             })
         }
     }
@@ -118,7 +118,7 @@ impl Encoder {
             }
             return Ok(EncodeResult {
                 result: 0,
-                result_count: 0,
+                result_bits: 0,
             });
         }
         if p_num == p_den {
@@ -127,7 +127,7 @@ impl Encoder {
             }
             return Ok(EncodeResult {
                 result: 0,
-                result_count: 0,
+                result_bits: 0,
             });
         }
         let mid = self.range.weighted_mid_ratio(p_num, p_den);
@@ -153,7 +153,7 @@ impl Encoder {
             }
             return Ok(EncodeResult {
                 result: 0,
-                result_count: 0,
+                result_bits: 0,
             });
         }
         if p == 1.0 {
@@ -162,7 +162,7 @@ impl Encoder {
             }
             return Ok(EncodeResult {
                 result: 0,
-                result_count: 0,
+                result_bits: 0,
             });
         }
         let mid = self.range.weighted_mid_f64(p);
@@ -192,7 +192,7 @@ pub fn encode_bit(low: u32, high: u32, bit: bool, p: u32) {
     match encoder.encode_bit(bit, p) {
         Ok(EncodeResult {
             result,
-            result_count,
+            result_bits,
         }) => bit_encoded(result, result_count),
         Err(error_code) => error_handler(error_code as u32, 0, 0),
     }
@@ -207,7 +207,7 @@ pub fn encode_bit_ratio(low: u32, high: u32, bit: bool, p_num: u32, p_den: u32) 
     match encoder.encode_bit_ratio(bit, p_num, p_den) {
         Ok(EncodeResult {
             result,
-            result_count,
+            result_bits,
         }) => bit_encoded(result, result_count),
         Err(error_code) => error_handler(error_code as u32, 0, 0),
     }
@@ -222,7 +222,7 @@ pub fn encode_bit_f64(low: u32, high: u32, bit: bool, p: f64) {
     match encoder.encode_bit_f64(bit, p) {
         Ok(EncodeResult {
             result,
-            result_count,
+            result_bits,
         }) => bit_encoded(result, result_count),
         Err(error_code) => error_handler(error_code as u32, 0, 0),
     }
@@ -242,7 +242,7 @@ mod tests {
                 });
                 let EncodeResult {
                     result,
-                    result_count,
+                    result_bits: result_count,
                 } = encoder.encode_range();
                 assert_eq!(encoder.scratch.scratch, 0);
                 assert_eq!(encoder.scratch.scratch_idx, 0);

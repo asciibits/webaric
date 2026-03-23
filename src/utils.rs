@@ -34,11 +34,13 @@ impl Range {
             .wrapping_add(self.low)
     }
 
-    /// Calculate a weighted mid-point value in the range [low, high] proportional to p_num /
-    /// p_dden.
+    /// Calculate a weighted mid-point value in the range [low, high] proportional to p_num / p_dden.
     ///
-    /// Note: A p_den value of zero will trap due to division by zero. Use `weighted_mid` for a
-    /// version that works on the full 2^32 range.
+    /// Note: This function assumes that p_num < p_den. If this invariant is violated, the results are
+    /// undetermined.
+    ///
+    /// Note2: A p_den value of zero will trap due to division by zero. Use `weighted_mid` for a version
+    /// that works on the full 2^32 range.
     #[cfg_attr(target_family = "wasm", inline(always))]
     pub(crate) fn weighted_mid_ratio(&self, p_num: u32, p_den: u32) -> u32 {
         (((((self.high.wrapping_sub(self.low)) as u64 + 1) * p_num as u64) / p_den as u64) as u32)
@@ -47,18 +49,20 @@ impl Range {
 
     /// Find the weighted midpoint for a given low/high region, and a given percentage.
     ///
-    /// Note: This algorith only uses operations that are perfectly specified by the IEEE 754 spec,
-    /// and so this function is consistent across all compliant WASM implementations. Assuming the
-    /// f64 param was generated using *only* those instructions with strict rounding requirements,
-    /// this function *should* be platform independent. That includes the operators: +, -, *, /, and
-    /// sqrt. All other operations *will* have platform dependent rounding issues. This includes
-    /// values generated from the suite of Javascript functions defined in Math. (Possibly with the
-    /// exception of Math.sqrt; Through V15 of the ECMA-262 spec, Math.sqrt was allowed to be an
-    /// "implementation-approximated" value:
-    /// https://262.ecma-international.org/15.0/index.html?#sec-math.sqrt. Starting with V16 (2025),
-    /// Math.sqrt is required to be IEEE754 compliant:
-    /// https://262.ecma-international.org/16.0/index.html?#sec-math.sqrt ) Regardless, the f64.sqrt
-    /// and f32.sqrt are both well defined, and thus consistent.
+    /// Note: This function assumes that 0 <= p < 1.0. If this invariant is violated, the results are
+    /// undetermined.
+    ///
+    /// Note: This algorith only uses operations that are perfectly specified by the IEEE 754 spec, and
+    /// so this function is consistent across all compliant WASM implementations. Assuming the f64 param
+    /// was generated using *only* those instructions with strict rounding requirements, this function
+    /// *should* be platform independent. That includes the operators: +, -, *, /, and sqrt. All other
+    /// operations *will* have platform dependent rounding issues. This includes values generated from
+    /// the suite of Javascript functions defined in Math. (Possibly with the exception of Math.sqrt;
+    /// Through V15 of the ECMA-262 spec, Math.sqrt was allowed to be an "implementation-approximated"
+    /// value: https://262.ecma-international.org/15.0/index.html?#sec-math.sqrt. Starting with V16
+    /// (2025), Math.sqrt is required to be IEEE754 compliant:
+    /// https://262.ecma-international.org/16.0/index.html?#sec-math.sqrt ) Regardless, the f64.sqrt and
+    /// f32.sqrt are both well defined, and thus consistent.
     #[cfg_attr(target_family = "wasm", inline(always))]
     pub(crate) fn weighted_mid_f64(&self, p: f64) -> u32 {
         self.weighted_mid(((p * 4294967296.0) as u64) as u32)
@@ -66,47 +70,47 @@ impl Range {
 
     /// Calculate the number of times we can "zoom" into a windowed region.
     ///
-    /// The range considered is all possible i32 values for both $low and $high. 0 <= $low <= $high
-    /// < 2^32
+    /// The range considered is all possible i32 values for both $low and $high. 0 <= $low <= $high <
+    /// 2^32
     ///
-    /// Every "zoom" represents doubling the gap between $high and $low. We consider only three
-    /// potential zooms:
+    /// Every "zoom" represents doubling the gap between $high and $low. We consider only three potential
+    /// zooms:
     ///
-    /// "zoom low": both $low and $high are in the bottom half of i32 values (i.e. their leading bit
-    /// is a 0). In this case, both values are doubled, and we record a "zoom_low". Note: because
-    /// the values are alread <= 2^31, doubling their values keeps them within the i32 range.
+    /// "zoom low": both $low and $high are in the bottom half of i32 values (i.e. their leading bit is a
+    /// 0). In this case, both values are doubled, and we record a "zoom_low". Note: because the values
+    /// are alread <= 2^31, doubling their values keeps them within the i32 range.
     ///
-    /// "zoom high": both $low and $high are in the top half of i32 values (i.e. their leading bit
-    /// is a 1). In this case, we first subtract 2^31, then double, and we record a "zoom_high". By
+    /// "zoom high": both $low and $high are in the top half of i32 values (i.e. their leading bit is a
+    /// 1). In this case, we first subtract 2^31, then double, and we record a "zoom_high". By
     /// subtracting 2^31 first, we keep the resulting values in the i32 range.
     ///
-    /// "zoom mid": both $low and $high are between the "quarter" and "three quarter" i32 values,
-    /// where "quarter" is (2^32 / 4) or 2^30, and "three quarter" is (2^32 * 3 / 4) or (2^31 +
-    /// 2^30). In this case, we first subtract 2^30, then double, and we record a "zoom_mid". By
-    /// subtracting 2^30, we keep the resulting values in the i32 range.
+    /// "zoom mid": both $low and $high are between the "quarter" and "three quarter" i32 values, where
+    /// "quarter" is (2^32 / 4) or 2^30, and "three quarter" is (2^32 * 3 / 4) or (2^31 + 2^30). In this
+    /// case, we first subtract 2^30, then double, and we record a "zoom_mid". By subtracting 2^30, we
+    /// keep the resulting values in the i32 range.
     ///
-    /// This function needs to communicate the ordered list of available zooms for the provided
-    /// range. So, something like: ["high", "low", "low", "mid", ...]
+    /// This function needs to communicate the ordered list of available zooms for the provided range.
+    /// So, something like: ["high", "low", "low", "mid", ...]
     ///
-    /// One simplification is recognizing that a mid zoom can't be followed by either a low or a
-    /// high zoom. This is because a mid zoom only happens when $high/$low straddle 2^31 - one is
-    /// above, the other below. (If both were below, we would instead opt for a low zoom, and if
-    /// both were above, a high zoom). After a mid-zoom, $high will still be above 2^31 - in fact it
-    /// will be twice as far above 2^31 as it was before the zoom. Similarly, $low will be twice as
-    /// far below 2^31 as it was previously. With the boundaries continuing to straddle the
-    /// mid-point, only another mid zoom will be possible.
+    /// One simplification is recognizing that a mid zoom can't be followed by either a low or a high
+    /// zoom. This is because a mid zoom only happens when $high/$low straddle 2^31 - one is above, the
+    /// other below. (If both were below, we would instead opt for a low zoom, and if both were above, a
+    /// high zoom). After a mid-zoom, $high will still be above 2^31 - in fact it will be twice as far
+    /// above 2^31 as it was before the zoom. Similarly, $low will be twice as far below 2^31 as it was
+    /// previously. With the boundaries continuing to straddle the mid-point, only another mid zoom will
+    /// be possible.
     ///
-    /// Since all mid-zooms (if there are any) occur after all high/low zooms, we can instead return
-    /// two values: the list of high/low zooms, and a single mid_zooms count.
+    /// Since all mid-zooms (if there are any) occur after all high/low zooms, we can instead return two
+    /// values: the list of high/low zooms, and a single mid_zooms count.
     ///
-    /// Another simplification is that the initial set of high/low zooms will look very similar to
-    /// the bit pattern of $low and $high. We only zoom high if both have a leading 1 bit. And we
-    /// only zoom low if both have a leading 0 bit. So, we could just return the leading bit
-    /// pattern; Or, even easier, just the number of available high/low zooms and let the caller
-    /// pull the bit pattern out of $low or $high.
+    /// Another simplification is that the initial set of high/low zooms will look very similar to the
+    /// bit pattern of $low and $high. We only zoom high if both have a leading 1 bit. And we only zoom
+    /// low if both have a leading 0 bit. So, we could just return the leading bit pattern; Or, even
+    /// easier, just the number of available high/low zooms and let the caller pull the bit pattern out
+    /// of $low or $high.
     ///
-    /// So, this function can return two i32 values: "outer_zooms" (i.e. the number of high/low
-    /// zooms), and "mid_zooms".
+    /// So, this function can return two i32 values: "outer_zooms" (i.e. the number of high/low zooms),
+    /// and "mid_zooms".
     ///
     /// Note: the max number of zooms is 32:
     ///
@@ -123,31 +127,30 @@ impl Range {
     ///
     /// Now for the optimized algorithm:
     ///
-    /// First, note that a "zoom high" emits a '1', and undergoes a "(x-2^31)*2" The bit-pattern
-    /// starts as: 0b1xx..xxx. The high bit is a '1' since it is
-    /// >= 2^31. Subtracting 2^31 effectively clears that high bit, and the "*2" shifts the
-    /// remainder to the left leaving: 0bxx..xxx0. Which can be viewed as "left shift, emit the bit
-    /// falling off the left"
+    /// First, note that a "zoom high" emits a '1', and undergoes a "(x-2^31)*2" The bit-pattern starts
+    /// as: 0b1xx..xxx. The high bit is a '1' since it is
+    /// >= 2^31. Subtracting 2^31 effectively clears that high bit, and the "*2" shifts the remainder to
+    /// the left leaving: 0bxx..xxx0. Which can be viewed as "left shift, emit the bit falling off the
+    /// left"
     ///
-    /// Zoom lows are similar, except the high bit is a 0: 0b0yy..yyy. It is similarly shifted, this
-    /// time emiting a '0', leaving: 0byy...yyy0. Again, it is "left shift, emit the bit falling off
-    /// the left"
+    /// Zoom lows are similar, except the high bit is a 0: 0b0yy..yyy. It is similarly shifted, this time
+    /// emiting a '0', leaving: 0byy...yyy0. Again, it is "left shift, emit the bit falling off the left"
     ///
-    /// And lastly, zoom mids work on values whose high bits are either 01 or 10 (Given the
-    /// condition: 2^30 <= x < (2^31+2^30)) The algorithm "(x-2^30)*2" first subtracts that 2^30.
-    /// Which changes the high bits as: 01 -> 00, 10 -> 01. I.e. the high bit becomes '0', and the
-    /// 2nd high bit is flipped. Then it is bit shifted as above.
+    /// And lastly, zoom mids work on values whose high bits are either 01 or 10 (Given the condition:
+    /// 2^30 <= x < (2^31+2^30)) The algorithm "(x-2^30)*2" first subtracts that 2^30. Which changes the
+    /// high bits as: 01 -> 00, 10 -> 01. I.e. the high bit becomes '0', and the 2nd high bit is flipped.
+    /// Then it is bit shifted as above.
     ///
     /// Note that a high zoom is only possible when both $low and $high values have a high bit of 1.
-    /// Similarly, a low zoom only happens when both have a high bit of 0. To find the set of
-    /// initial high/low zooms, we just see how many high order bits both $high and $low have in
-    /// common. Those become the "outer zooms".
+    /// Similarly, a low zoom only happens when both have a high bit of 0. To find the set of initial
+    /// high/low zooms, we just see how many high order bits both $high and $low have in common. Those
+    /// become the "outer zooms".
     ///
     /// After that initial set of matching high order bits, the next bit of $low and $high will
     /// necessarily be different: $low will have a 0, $high a 1. A "mid zoom" is possible if the
-    /// following bit of $high is a 0 (yielding 10), and the following bit of $low is a 1 (yielding
-    /// 01). Additional mid-zooms are possible so long as $high continues to have 0 bits, and $low
-    /// continues to have 1 bits.
+    /// following bit of $high is a 0 (yielding 10), and the following bit of $low is a 1 (yielding 01).
+    /// Additional mid-zooms are possible so long as $high continues to have 0 bits, and $low continues
+    /// to have 1 bits.
     ///
     /// Consider the example:
     ///
@@ -155,27 +158,25 @@ impl Range {
     ///
     /// xor  = high ^ low = 0b00111101..
     ///
-    /// The two leading zeros of that $xor represent the "outer zooms" - that is, we can zoom twice
-    /// (in this case, once high, then once low).
+    /// The two leading zeros of that $xor represent the "outer zooms" - that is, we can zoom twice (in
+    /// this case, once high, then once low).
     ///
     /// outer_zooms = clz(xor)  // = 2 in this example
     ///
-    /// After the zeros the $xor will have a 1 bit where $low is necessarily a 0 and $high is a 1.
-    /// After that, we want to know just how many cases exist where $low has a 1 while $high has a
-    /// 0.
+    /// After the zeros the $xor will have a 1 bit where $low is necessarily a 0 and $high is a 1. After
+    /// that, we want to know just how many cases exist where $low has a 1 while $high has a 0.
     ///
     /// masked_xor = low & xor = 0b00011001..
     ///
-    /// This represents a bit pattern where $low has a 1 AND $high has a 0. For the first
-    /// ($outer_zooms
-    /// + 1) bits, we know that the $masked_xor will be zero (For the first $outer_zooms bits, the
-    /// bits match so the $xor will be 0, and for the following bit $low will be 0). After that,
-    /// every consecutive 1 bit is a valid mid-zoom.
+    /// This represents a bit pattern where $low has a 1 AND $high has a 0. For the first ($outer_zooms
+    /// + 1) bits, we know that the $masked_xor will be zero (For the first $outer_zooms bits, the bits
+    /// match so the $xor will be 0, and for the following bit $low will be 0). After that, every
+    /// consecutive 1 bit is a valid mid-zoom.
     ///
     /// shifted_masked_xor = masked_xor << (outer_zooms + 1) = 0b11001..000
     ///
-    /// Now with the 1 bits representing the mid-zooms at the left, we can invert the pattern and
-    /// count the leading zeros:
+    /// Now with the 1 bits representing the mid-zooms at the left, we can invert the pattern and count
+    /// the leading zeros:
     ///
     /// mid_zooms = clz(~shifted_masked_xor)  // = 2 in this example
     ///
@@ -183,15 +184,15 @@ impl Range {
     ///
     /// xor = low ^ high outer_zooms = clz(xor) mid_zooms = clz(~((xor & low) << (outer_zooms + 1)))
     ///
-    /// That's 7 total operations with no branching for an algorithm that could span a page with
-    /// loops and branching if implemented in the naive way. Pretty sweet!
+    /// That's 7 total operations with no branching for an algorithm that could span a page with loops
+    /// and branching if implemented in the naive way. Pretty sweet!
     ///
     /// Following any mid zooms, if we just shift without fixing the leading bits, we end up with:
     ///
     /// 0 <= $high < 2^31 <= $low < 2^32
     ///
-    /// Interestingly, in this case, the above logic holds. We will always get a 0 for $outer_zooms,
-    /// and the correct # for any viable mid zooms.
+    /// Interestingly, in this case, the above logic holds. We will always get a 0 for $outer_zooms, and
+    /// the correct # for any viable mid zooms.
     #[cfg_attr(target_family = "wasm", inline(always))]
     pub fn zoom(&mut self, max_mid_zooms: u32) -> ZoomResult {
         let xor = self.low ^ self.high;
@@ -258,7 +259,7 @@ impl Scratch {
     pub fn apply_zoom(&mut self, zoom_result: &ZoomResult) -> EncodeResult {
         if zoom_result.zooms != 0 {
             let mut result = self.scratch;
-            let mut result_count: u32 = 0;
+            let mut result_bits: u32 = 0;
 
             self.scratch |= ((zoom_result.emitted_bits as u64) << 32) >> self.scratch_idx;
             if zoom_result.outer_zooms != 0 {
@@ -272,7 +273,7 @@ impl Scratch {
                 self.scratch_idx += zoom_result.zooms;
 
                 result = self.scratch;
-                result_count = self.dangling_idx >> 5;
+                result_bits = self.dangling_idx & 0x60;
 
                 if self.scratch_idx >= 64 {
                     self.scratch = (self.scratch << 32)
@@ -298,12 +299,12 @@ impl Scratch {
 
             EncodeResult {
                 result,
-                result_count,
+                result_bits,
             }
         } else {
             EncodeResult {
                 result: 0,
-                result_count: 0,
+                result_bits: 0,
             }
         }
     }
@@ -329,7 +330,7 @@ impl Debug for ZoomResult {
 
 pub struct EncodeResult {
     pub result: u64,
-    pub result_count: u32,
+    pub result_bits: u32,
 }
 
 #[cfg(test)]
@@ -338,17 +339,17 @@ impl Debug for EncodeResult {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "EncodeResult {{ result: 0x{:x}, result_count: {} }}",
-            self.result, self.result_count
+            "EncodeResult {{ result: 0x{:x}, result_bits: {} }}",
+            self.result, self.result_bits
         )
     }
 }
 #[cfg(test)]
 impl PartialEq for EncodeResult {
-    // For `result`, we only care about the bits associated with result_count
+    // For `result`, we only care about the bits associated with result_bits
     fn eq(&self, other: &Self) -> bool {
-        let shift = 64 - self.result_count * 32;
-        self.result_count == other.result_count
+        let shift = 64 - self.result_bits;
+        self.result_bits == other.result_bits
             && (self.result ^ other.result).unbounded_shr(shift) == 0
     }
 }
@@ -374,10 +375,10 @@ mod tests {
             emitted_bits,
         }
     }
-    fn encode_result(result: u64, result_count: u32) -> EncodeResult {
+    fn encode_result(result: u64, result_bits: u32) -> EncodeResult {
         EncodeResult {
             result,
-            result_count,
+            result_bits,
         }
     }
 
@@ -463,6 +464,18 @@ mod tests {
                     )
                 );
             }
+            #[test]
+            fn no_zooms_inverted() {
+                let mut old_range = range(0x80000000, 0x3fffffff);
+                assert_eq!(old_range.zoom(63), zoom_result(0, 0, 0));
+                assert_eq!(old_range, range(0x80000000, 0x3fffffff));
+            }
+            #[test]
+            fn many_zooms_inverted() {
+                let mut old_range = range(0xfffabcde, 0x00076543);
+                assert_eq!(old_range.zoom(63), zoom_result(12, 0, 0xfff00000));
+                assert_eq!(old_range, range(0xabcde000, 0x76543fff));
+            }
         }
         mod weighted_mid {
             mod p_i32 {
@@ -527,6 +540,18 @@ mod tests {
                     assert_eq!(range.weighted_mid(0xdeadbeef), 0x446b3c03);
                     assert_eq!(range.weighted_mid(0xfffffffe), 0x62918346);
                     assert_eq!(range.weighted_mid(0xffffffff), 0x62918347);
+                }
+                #[test]
+                fn inverted_max() {
+                    let range = Range {
+                        low: 0x7aefbcde,
+                        high: 0x7aefbcdd,
+                    };
+                    assert_eq!(range.weighted_mid(0), 0x7aefbcde);
+                    assert_eq!(range.weighted_mid(1), 0x7aefbcdf);
+                    assert_eq!(range.weighted_mid(0xdeadbeef), 0x599d7bcd);
+                    assert_eq!(range.weighted_mid(0xfffffffe), 0x7aefbcdc);
+                    assert_eq!(range.weighted_mid(0xffffffff), 0x7aefbcdd);
                 }
             }
             mod p_ratio {
@@ -606,6 +631,20 @@ mod tests {
                     assert_eq!(range.weighted_mid_ratio(100, 100), 0x62918348);
                     assert_eq!(range.weighted_mid_ratio(0xffffffff, 0xffffffff), 0x62918348);
                     assert_eq!(range.weighted_mid_ratio(0xfffffffe, 0xffffffff), 0x62918347);
+                }
+                #[test]
+                fn inverted_max() {
+                    let range = Range {
+                        low: 0x7aefbcde,
+                        high: 0x7aefbcdd,
+                    };
+                    assert_eq!(range.weighted_mid_ratio(0, 100), 0x7aefbcde);
+                    assert_eq!(range.weighted_mid_ratio(1, 100), 0x7d7f1906);
+                    assert_eq!(range.weighted_mid_ratio(59, 100), 0x11f9fa4e);
+                    assert_eq!(range.weighted_mid_ratio(99, 100), 0x786060b5);
+                    assert_eq!(range.weighted_mid_ratio(100, 100), 0x7aefbcde);
+                    assert_eq!(range.weighted_mid_ratio(0xffffffff, 0xffffffff), 0x7aefbcde);
+                    assert_eq!(range.weighted_mid_ratio(0xfffffffe, 0xffffffff), 0x7aefbcdc);
                 }
             }
             mod p_f64 {
@@ -716,6 +755,26 @@ mod tests {
                         0x62918347
                     );
                 }
+                #[test]
+                fn inverted_max() {
+                    let range = Range {
+                        low: 0x7aefbcde,
+                        high: 0x7aefbcdd,
+                    };
+                    assert_eq!(range.weighted_mid_f64(0.0), 0x7aefbcde);
+                    assert_eq!(range.weighted_mid_f64(1.0 / 100.0), 0x7d7f1906);
+                    assert_eq!(range.weighted_mid_f64(59.0 / 100.0), 0x11f9fa4e);
+                    assert_eq!(range.weighted_mid_f64(99.0 / 100.0), 0x786060b5);
+                    assert_eq!(range.weighted_mid_f64(100.0 / 100.0), 0x7aefbcde);
+                    assert_eq!(
+                        range.weighted_mid_f64(0xffffffffu32 as f64 / 0xffffffffu32 as f64),
+                        0x7aefbcde
+                    );
+                    assert_eq!(
+                        range.weighted_mid_f64(0xfffffffeu32 as f64 / 0xffffffffu32 as f64),
+                        0x7aefbcdd
+                    );
+                }
             }
         }
     }
@@ -752,7 +811,7 @@ mod tests {
                 scr = scratch(0xdecafbac00000000, 31, 31);
                 assert_eq!(
                     scr.apply_zoom(&zoom_result(1, 1, 0x80000000)),
-                    encode_result(0xdecafbad00000000, 1)
+                    encode_result(0xdecafbad00000000, 32)
                 );
                 assert_eq!(scr, scratch(0, 0, 0));
             }
@@ -780,13 +839,13 @@ mod tests {
                 scr = scratch(0xdecafbae00000000, 31, 28);
                 assert_eq!(
                     scr.apply_zoom(&zoom_result(1, 1, 0x80000000)),
-                    encode_result(0xdecafbb000000000, 1)
+                    encode_result(0xdecafbb000000000, 32)
                 );
                 assert_eq!(scr, scratch(0, 0, 0));
                 scr = scratch(0xdecafbae00000000, 31, 28);
                 assert_eq!(
                     scr.apply_zoom(&zoom_result(1, 1, 0)),
-                    encode_result(0xdecafbaf00000000, 1)
+                    encode_result(0xdecafbaf00000000, 32)
                 );
                 assert_eq!(scr, scratch(0, 0, 0));
             }
