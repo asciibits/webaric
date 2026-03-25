@@ -78,7 +78,7 @@ impl Encoder {
     #[cfg_attr(target_family = "wasm", inline(always))]
     fn encode_range(&mut self) -> EncodeResult {
         self.scratch
-            .apply_zoom(&self.range.zoom(self.scratch.max_mid_zooms()))
+            .apply_encode_zoom(&self.range.encode_zoom(self.scratch.max_mid_zooms()))
     }
 
     #[cfg_attr(target_family = "wasm", inline(always))]
@@ -175,11 +175,38 @@ impl Encoder {
     }
 }
 
+pub struct Decoder {
+    pub scratch: Scratch,
+    pub range: Range,
+}
+
+impl Decoder {
+    #[cfg_attr(target_family = "wasm", inline(always))]
+    pub fn new() -> Decoder {
+        Decoder {
+            scratch: Scratch::new(),
+            range: Range::new(),
+        }
+    }
+
+    // #[cfg_attr(target_family = "wasm", inline(always))]
+    // fn decode_range(&mut self) -> EncodeResult {
+    //     let zoom_result = &self.range.encode_zoom(self.scratch.max_mid_zooms())
+    //     self.scratch.apply_encode_zoom()
+    // }
+
+    #[cfg_attr(target_family = "wasm", inline(always))]
+    pub fn decode_bit(&mut self, p: u32) -> Result<EncodeResult, EncodeError> {
+        // TODO: implement
+        Err(EncodeError::BitSetWithProbabilityZero)
+    }
+}
+
 #[cfg(target_family = "wasm")]
 #[cfg_attr(target_family = "wasm", wasm_bindgen)]
 pub fn zoom(low: u32, high: u32) -> u64 {
     let mut range = Range { low, high };
-    let zoom_result = range.zoom(63);
+    let zoom_result = range.encode_zoom(63);
     (zoom_result.zooms as u64) << 32 | (zoom_result.outer_zooms as u64)
 }
 

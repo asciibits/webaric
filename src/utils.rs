@@ -199,10 +199,8 @@ impl Range {
         let outer_zooms = xor.leading_zeros();
         let mut zooms =
             outer_zooms + ((xor & self.low).wrapping_shl(outer_zooms + 1)).leading_ones();
-        let emitted_bits: u32;
         if zooms == 32 {
             // very unlikely branch
-            emitted_bits = self.low;
             self.low = 0;
             self.high = 0xffffffff;
         } else {
@@ -210,16 +208,40 @@ impl Range {
                 // very unlikely branch
                 zooms = max_mid_zooms;
             }
-            // expected branch
-            emitted_bits = self.low & !(0xffffffff_u32 >> zooms);
             self.low <<= zooms;
             self.high = ((self.high.wrapping_add(1)) << zooms).wrapping_sub(1);
         }
         ZoomResult {
             zooms,
             outer_zooms,
-            emitted_bits,
+            result_bits: 0,
         }
+    }
+
+    #[cfg_attr(target_family = "wasm", inline(always))]
+    pub fn encode_zoom(&mut self, max_mid_zooms: u32) -> ZoomResult {
+        let mut result_bits = self.low;
+        let mut result = self.zoom(max_mid_zooms);
+
+        if result.zooms != 32 {
+            // expected branch
+            result_bits &= !(0xffffffff_u32 >> result.zooms);
+        }
+        result.result_bits = result_bits;
+        result
+    }
+
+    #[cfg_attr(target_family = "wasm", inline(always))]
+    pub fn decode_zoom(&mut self, max_mid_zooms: u32) -> ZoomResult {
+        let mut result_bits = self.low;
+        let mut result = self.zoom(max_mid_zooms);
+
+        if result.zooms != 32 {
+            // expected branch
+            result_bits &= !(0xffffffff_u32 >> result.zooms);
+        }
+        result.result_bits = result_bits;
+        result
     }
 }
 
@@ -256,12 +278,12 @@ impl Scratch {
     }
 
     #[cfg_attr(target_family = "wasm", inline(always))]
-    pub fn apply_zoom(&mut self, zoom_result: &ZoomResult) -> EncodeResult {
+    pub fn apply_encode_zoom(&mut self, zoom_result: &ZoomResult) -> EncodeResult {
         if zoom_result.zooms != 0 {
             let mut result = self.scratch;
             let mut result_bits: u32 = 0;
 
-            self.scratch |= ((zoom_result.emitted_bits as u64) << 32) >> self.scratch_idx;
+            self.scratch |= ((zoom_result.result_bits as u64) << 32) >> self.scratch_idx;
             if zoom_result.outer_zooms != 0 {
                 if self.scratch_idx > self.dangling_idx {
                     // we have an outer zoom - resolve the dangling mids
@@ -277,7 +299,7 @@ impl Scratch {
 
                 if self.scratch_idx >= 64 {
                     self.scratch = (self.scratch << 32)
-                        | (zoom_result.emitted_bits << (64 - self.scratch_idx + zoom_result.zooms))
+                        | (zoom_result.result_bits << (64 - self.scratch_idx + zoom_result.zooms))
                             as u64;
                     self.scratch_idx -= 32;
                     self.dangling_idx -= 32;
@@ -309,13 +331,18 @@ impl Scratch {
             }
         }
     }
+
+    #[cfg_attr(target_family = "wasm", inline(always))]
+    pub fn apply_decode_zoom(&mut self, zoom_result: &ZoomResult) -> EncodeResult {
+        panic!()
+    }
 }
 
 #[derive(PartialEq)]
 pub struct ZoomResult {
     pub zooms: u32,
     pub outer_zooms: u32,
-    pub emitted_bits: u32,
+    pub result_bits: u32,
 }
 #[cfg(test)]
 impl Debug for ZoomResult {
@@ -324,7 +351,7 @@ impl Debug for ZoomResult {
         write!(
             f,
             "ZoomResult {{ zooms: {}, outer_zooms: {}, emitted_bits: {:#010x} }}",
-            self.zooms, self.outer_zooms, self.emitted_bits
+            self.zooms, self.outer_zooms, self.result_bits
         )
     }
 }
@@ -373,7 +400,7 @@ mod tests {
         ZoomResult {
             zooms,
             outer_zooms,
-            emitted_bits,
+            result_bits: emitted_bits,
         }
     }
     fn encode_result(result: u64, result_bits: u32) -> EncodeResult {
@@ -390,61 +417,61 @@ mod tests {
             #[test]
             fn no_zoom_low() {
                 let mut old_range = range(0x3fffffff, 0x80000000);
-                assert_eq!(old_range.zoom(63), zoom_result(0, 0, 0));
+                assert_eq!(old_range.encode_zoom(63), zoom_result(0, 0, 0));
                 assert_eq!(old_range, range(0x3fffffff, 0x80000000));
             }
             #[test]
             fn single_zoom_low() {
                 let mut old_range = range(0x3fffffff, 0x7fffffff);
-                assert_eq!(old_range.zoom(63), zoom_result(1, 1, 0));
+                assert_eq!(old_range.encode_zoom(63), zoom_result(1, 1, 0));
                 assert_eq!(old_range, range(0x7ffffffe, 0xffffffff));
             }
             #[test]
             fn single_zoom_mid_lower() {
                 let mut old_range = range(0x40000000, 0x80000000);
-                assert_eq!(old_range.zoom(63), zoom_result(1, 0, 0));
+                assert_eq!(old_range.encode_zoom(63), zoom_result(1, 0, 0));
                 assert_eq!(old_range, range(0x80000000, 1));
             }
             #[test]
             fn no_zoom_high() {
                 let mut old_range = range(0x7fffffff, 0xc0000000);
-                assert_eq!(old_range.zoom(63), zoom_result(0, 0, 0));
+                assert_eq!(old_range.encode_zoom(63), zoom_result(0, 0, 0));
                 assert_eq!(old_range, range(0x7fffffff, 0xc0000000));
             }
             #[test]
             fn single_zoom_high() {
                 let mut old_range = range(0x80000000, 0xc0000000);
-                assert_eq!(old_range.zoom(63), zoom_result(1, 1, 0x80000000));
+                assert_eq!(old_range.encode_zoom(63), zoom_result(1, 1, 0x80000000));
                 assert_eq!(old_range, range(0, 0x80000001));
             }
             #[test]
             fn single_zoom_mid_upper() {
                 let mut old_range = range(0x7fffffff, 0xbfffffff);
-                assert_eq!(old_range.zoom(63), zoom_result(1, 0, 0));
+                assert_eq!(old_range.encode_zoom(63), zoom_result(1, 0, 0));
                 assert_eq!(old_range, range(0xfffffffe, 0x7fffffff));
             }
             #[test]
             fn max_zooms_low() {
                 let mut old_range = range(0, 1);
-                assert_eq!(old_range.zoom(63), zoom_result(31, 31, 0));
+                assert_eq!(old_range.encode_zoom(63), zoom_result(31, 31, 0));
                 assert_eq!(old_range, range(0, 0xffffffff));
             }
             #[test]
             fn max_zooms_high() {
                 let mut old_range = range(0xfffffffe, 0xffffffff);
-                assert_eq!(old_range.zoom(63), zoom_result(31, 31, 0xfffffffe));
+                assert_eq!(old_range.encode_zoom(63), zoom_result(31, 31, 0xfffffffe));
                 assert_eq!(old_range, range(0, 0xffffffff));
             }
             #[test]
             fn max_zooms_mid() {
                 let mut old_range = range(0x7fffffff, 0x80000000);
-                assert_eq!(old_range.zoom(63), zoom_result(31, 0, 0x7ffffffe));
+                assert_eq!(old_range.encode_zoom(63), zoom_result(31, 0, 0x7ffffffe));
                 assert_eq!(old_range, range(0x80000000, 0x7fffffff));
             }
             #[test]
             fn identical_zooms() {
                 let mut old_range = range(0xdeadbeef, 0xdeadbeef);
-                assert_eq!(old_range.zoom(63), zoom_result(32, 32, 0xdeadbeef));
+                assert_eq!(old_range.encode_zoom(63), zoom_result(32, 32, 0xdeadbeef));
                 assert_eq!(old_range, range(0, 0xffffffff));
             }
             #[test]
@@ -454,7 +481,7 @@ mod tests {
                     0b10110101001010110101001010100000,
                 );
                 assert_eq!(
-                    old_range.zoom(63),
+                    old_range.encode_zoom(63),
                     zoom_result(30, 26, 0b10110101001010110101001010011100)
                 );
                 assert_eq!(
@@ -468,25 +495,25 @@ mod tests {
             #[test]
             fn no_zooms_inverted() {
                 let mut old_range = range(0x80000000, 0x3fffffff);
-                assert_eq!(old_range.zoom(63), zoom_result(0, 0, 0));
+                assert_eq!(old_range.encode_zoom(63), zoom_result(0, 0, 0));
                 assert_eq!(old_range, range(0x80000000, 0x3fffffff));
             }
             #[test]
             fn many_zooms_inverted() {
                 let mut old_range = range(0xfffabcde, 0x00076543);
-                assert_eq!(old_range.zoom(63), zoom_result(12, 0, 0xfff00000));
+                assert_eq!(old_range.encode_zoom(63), zoom_result(12, 0, 0xfff00000));
                 assert_eq!(old_range, range(0xabcde000, 0x76543fff));
             }
             #[test]
             fn zoom_respects_limit() {
                 let mut old_range = range(0x7fffffff, 0x80000000);
-                assert_eq!(old_range.zoom(10), zoom_result(10, 0, 0x7fc00000));
+                assert_eq!(old_range.encode_zoom(10), zoom_result(10, 0, 0x7fc00000));
                 assert_eq!(old_range, range(0xfffffc00, 0x000003ff));
             }
             #[test]
             fn zoom_ignores_limit_with_outer() {
                 let mut old_range = range(0x7ffffffe, 0x7fffffff);
-                assert_eq!(old_range.zoom(10), zoom_result(31, 31, 0x7ffffffe));
+                assert_eq!(old_range.encode_zoom(10), zoom_result(31, 31, 0x7ffffffe));
                 assert_eq!(old_range, range(0, 0xffffffff));
             }
         }
@@ -807,27 +834,36 @@ mod tests {
             fn no_zoom_does_nothing() {
                 let mut scr;
                 scr = scratch(0xbad0000000000000, 12, 12);
-                assert_eq!(scr.apply_zoom(&zoom_result(0, 0, 0)), encode_result(0, 0));
+                assert_eq!(
+                    scr.apply_encode_zoom(&zoom_result(0, 0, 0)),
+                    encode_result(0, 0)
+                );
                 assert_eq!(scr, scratch(0xbad0000000000000, 12, 12));
                 scr = scratch(0xdeadbadbeefbabe2, 63, 31);
-                assert_eq!(scr.apply_zoom(&zoom_result(0, 0, 0)), encode_result(0, 0));
+                assert_eq!(
+                    scr.apply_encode_zoom(&zoom_result(0, 0, 0)),
+                    encode_result(0, 0)
+                );
                 assert_eq!(scr, scratch(0xdeadbadbeefbabe2, 63, 31));
             }
             #[test]
             fn single_outer_zoom_applies_zoom() {
                 let mut scr;
                 scr = scratch(0, 0, 0);
-                assert_eq!(scr.apply_zoom(&zoom_result(1, 1, 0)), encode_result(0, 0));
+                assert_eq!(
+                    scr.apply_encode_zoom(&zoom_result(1, 1, 0)),
+                    encode_result(0, 0)
+                );
                 assert_eq!(scr, scratch(0, 1, 1));
                 scr = scratch(0xbad0000000000000, 12, 12);
                 assert_eq!(
-                    scr.apply_zoom(&zoom_result(1, 1, 0x80000000)),
+                    scr.apply_encode_zoom(&zoom_result(1, 1, 0x80000000)),
                     encode_result(0, 0)
                 );
                 assert_eq!(scr, scratch(0xbad8000000000000, 13, 13));
                 scr = scratch(0xdecafbac00000000, 31, 31);
                 assert_eq!(
-                    scr.apply_zoom(&zoom_result(1, 1, 0x80000000)),
+                    scr.apply_encode_zoom(&zoom_result(1, 1, 0x80000000)),
                     encode_result(0xdecafbad00000000, 32)
                 );
                 assert_eq!(scr, scratch(0, 0, 0));
@@ -836,44 +872,50 @@ mod tests {
             fn single_outer_zoom_resolves_mid() {
                 let mut scr;
                 scr = scratch(0, 1, 0);
-                assert_eq!(scr.apply_zoom(&zoom_result(1, 1, 0)), encode_result(0, 0));
+                assert_eq!(
+                    scr.apply_encode_zoom(&zoom_result(1, 1, 0)),
+                    encode_result(0, 0)
+                );
                 assert_eq!(scr, scratch(0x4000000000000000, 2, 2));
                 scr = scratch(0, 1, 0);
                 assert_eq!(
-                    scr.apply_zoom(&zoom_result(1, 1, 0x80000000)),
+                    scr.apply_encode_zoom(&zoom_result(1, 1, 0x80000000)),
                     encode_result(0, 0)
                 );
                 assert_eq!(scr, scratch(0x8000000000000000, 2, 2));
                 scr = scratch(0xbaef000000000000, 16, 12);
-                assert_eq!(scr.apply_zoom(&zoom_result(1, 1, 0)), encode_result(0, 0));
+                assert_eq!(
+                    scr.apply_encode_zoom(&zoom_result(1, 1, 0)),
+                    encode_result(0, 0)
+                );
                 assert_eq!(scr, scratch(0xbaef800000000000, 17, 17));
                 scr = scratch(0xbaef000000000000, 16, 12);
                 assert_eq!(
-                    scr.apply_zoom(&zoom_result(1, 1, 0x80000000)),
+                    scr.apply_encode_zoom(&zoom_result(1, 1, 0x80000000)),
                     encode_result(0, 0)
                 );
                 assert_eq!(scr, scratch(0xbaf0000000000000, 17, 17));
                 scr = scratch(0xdecafbae00000000, 31, 28);
                 assert_eq!(
-                    scr.apply_zoom(&zoom_result(1, 1, 0x80000000)),
+                    scr.apply_encode_zoom(&zoom_result(1, 1, 0x80000000)),
                     encode_result(0xdecafbb000000000, 32)
                 );
                 assert_eq!(scr, scratch(0, 0, 0));
                 scr = scratch(0xdecafbae00000000, 31, 28);
                 assert_eq!(
-                    scr.apply_zoom(&zoom_result(1, 1, 0)),
+                    scr.apply_encode_zoom(&zoom_result(1, 1, 0)),
                     encode_result(0xdecafbaf00000000, 32)
                 );
                 assert_eq!(scr, scratch(0, 0, 0));
                 scr = scratch(0xdeadbaddfffffffe, 63, 31);
                 assert_eq!(
-                    scr.apply_zoom(&zoom_result(1, 1, 0)),
+                    scr.apply_encode_zoom(&zoom_result(1, 1, 0)),
                     encode_result(0xdeadbaddffffffff, 64)
                 );
                 assert_eq!(scr, scratch(0, 0, 0));
                 scr = scratch(0xdeadbaddfffffffe, 63, 31);
                 assert_eq!(
-                    scr.apply_zoom(&zoom_result(1, 1, 0x80000000)),
+                    scr.apply_encode_zoom(&zoom_result(1, 1, 0x80000000)),
                     encode_result(0xdeadbade00000000, 64)
                 );
                 assert_eq!(scr, scratch(0, 0, 0));
@@ -882,29 +924,38 @@ mod tests {
             fn single_mid_zoom_never_resolves() {
                 let mut scr;
                 scr = scratch(0, 1, 0);
-                assert_eq!(scr.apply_zoom(&zoom_result(1, 0, 0)), encode_result(0, 0));
+                assert_eq!(
+                    scr.apply_encode_zoom(&zoom_result(1, 0, 0)),
+                    encode_result(0, 0)
+                );
                 assert_eq!(scr, scratch(0, 2, 0));
                 scr = scratch(0, 1, 0);
                 assert_eq!(
-                    scr.apply_zoom(&zoom_result(1, 0, 0x80000000)),
+                    scr.apply_encode_zoom(&zoom_result(1, 0, 0x80000000)),
                     encode_result(0, 0)
                 );
                 assert_eq!(scr, scratch(0x4000000000000000, 2, 0));
                 scr = scratch(0xbaef000000000000, 16, 12);
-                assert_eq!(scr.apply_zoom(&zoom_result(1, 0, 0)), encode_result(0, 0));
+                assert_eq!(
+                    scr.apply_encode_zoom(&zoom_result(1, 0, 0)),
+                    encode_result(0, 0)
+                );
                 assert_eq!(scr, scratch(0xbaef000000000000, 17, 12));
                 scr = scratch(0xbaef000000000000, 16, 12);
                 assert_eq!(
-                    scr.apply_zoom(&zoom_result(1, 0, 0x80000000)),
+                    scr.apply_encode_zoom(&zoom_result(1, 0, 0x80000000)),
                     encode_result(0, 0)
                 );
                 assert_eq!(scr, scratch(0xbaef800000000000, 17, 12));
                 scr = scratch(0xdecafbae00000000, 31, 28);
-                assert_eq!(scr.apply_zoom(&zoom_result(1, 0, 0)), encode_result(0, 0));
+                assert_eq!(
+                    scr.apply_encode_zoom(&zoom_result(1, 0, 0)),
+                    encode_result(0, 0)
+                );
                 assert_eq!(scr, scratch(0xdecafbae00000000, 32, 28));
                 scr = scratch(0xdecafbae00000000, 31, 28);
                 assert_eq!(
-                    scr.apply_zoom(&zoom_result(1, 0, 0x80000000)),
+                    scr.apply_encode_zoom(&zoom_result(1, 0, 0x80000000)),
                     encode_result(0, 0)
                 );
                 assert_eq!(scr, scratch(0xdecafbaf00000000, 32, 28));
